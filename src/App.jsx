@@ -82,7 +82,7 @@ const filterByPeriod = (sales, period, opts = {}) => {
   return a;
 };
 
-const aggregate = (sales, includeCancel, groupBy) => {
+const aggregate = (sales, includeCancel, groupBy, multipliers = DEFAULT_MULT) => {
   const map = {};
   sales.forEach(s => {
     const key = groupBy === "emp" ? `${s.employeeName}_${s.homeStore}` : groupBy === "store" ? s.reportStore : (s.region || "기타");
@@ -95,8 +95,9 @@ const aggregate = (sales, includeCancel, groupBy) => {
     m.countTotal = m.cC + m.cK + m.cR; m.scoreTotal = Math.round((m.sC + m.sK + m.sR) * 10) / 10;
     m.cancelCount = m.xC + m.xK + m.xR;
     m.netCount = m.countTotal - m.cancelCount;
-    m.netScore = Math.round((m.sC + m.sK + m.sR - m.xC * 1.3 - m.xK * 1.1 - m.xR * 1.0) * 10) / 10;
-    m.netScoreCash = Math.round((m.sC - m.xC * 1.3) * 10) / 10; m.netScoreCare = Math.round((m.sK - m.xK * 1.1) * 10) / 10; m.netScoreRental = Math.round((m.sR - m.xR * 1.0) * 10) / 10;
+    const mC = multipliers["일시불"] || 1; const mK = multipliers["페이케어"] || 1; const mR = multipliers["렌탈"] || 1;
+    m.netScore = Math.round((m.sC + m.sK + m.sR - m.xC * mC - m.xK * mK - m.xR * mR) * 10) / 10;
+    m.netScoreCash = Math.round((m.sC - m.xC * mC) * 10) / 10; m.netScoreCare = Math.round((m.sK - m.xK * mK) * 10) / 10; m.netScoreRental = Math.round((m.sR - m.xR * mR) * 10) / 10;
     m.netCountCash = m.cC - m.xC; m.netCountCare = m.cK - m.xK; m.netCountRental = m.cR - m.xR;
     return m;
   });
@@ -113,7 +114,7 @@ const Label = ({ children }) => <label className="block text-[11px] font-semibol
 const Stat = ({ label, value, sub, color = "slate" }) => { const g = { slate: "from-slate-700 to-slate-900", blue: "from-blue-600 to-blue-800", emerald: "from-emerald-600 to-emerald-800", amber: "from-amber-500 to-amber-700" }; return <div className={`bg-gradient-to-br ${g[color]} rounded-2xl p-5 text-white`}><p className="text-[11px] font-medium opacity-70 uppercase">{label}</p><p className="text-2xl font-extrabold mt-1">{value}</p>{sub && <p className="text-xs mt-1 opacity-60">{sub}</p>}</div>; };
 const Modal = ({ open, onClose, title, children }) => { if (!open) return null; return <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}><div className="absolute inset-0 bg-black/40 backdrop-blur-sm" /><div className="relative bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[85vh] overflow-auto" onClick={e => e.stopPropagation()}><div className="flex items-center justify-between p-5 border-b border-slate-100"><h3 className="text-lg font-bold">{title}</h3><button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 cursor-pointer"><Ic d={ic.x} size={18} /></button></div><div className="p-5">{children}</div></div></div>; };
 const Empty = ({ icon, title }) => <div className="flex flex-col items-center py-16 text-slate-400"><div className="w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center mb-3"><Ic d={icon} size={24} /></div><p className="font-semibold text-slate-500 text-sm">{title}</p></div>;
-const Toast = ({ message, onClose }) => { useEffect(() => { const t = setTimeout(onClose, 2500); return () => clearTimeout(t); }, []); return <div className="fixed top-6 right-6 z-[100]" style={{ animation: "slideIn .3s ease-out" }}><div className="bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2"><Ic d={ic.check} size={16} />{message}</div></div>; };
+const Toast = ({ message, onClose }) => { useEffect(() => { const t = setTimeout(onClose, 2500); return () => clearTimeout(t); }, [onClose]); return <div className="fixed top-6 right-6 z-[100]" style={{ animation: "slideIn .3s ease-out" }}><div className="bg-emerald-600 text-white px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold flex items-center gap-2"><Ic d={ic.check} size={16} />{message}</div></div>; };
 const Toggle = ({ on, onToggle, labelOn, labelOff }) => <button onClick={onToggle} className="flex items-center gap-2 cursor-pointer select-none"><div className={`relative w-11 h-6 rounded-full transition-colors ${on ? "bg-emerald-500" : "bg-slate-300"}`}><div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${on ? "translate-x-[22px]" : "translate-x-0.5"}`} /></div><span className="text-sm font-medium text-slate-700">{on ? labelOn : labelOff}</span></button>;
 const Tabs = ({ tabs, active, onChange }) => <div className="flex gap-1 bg-slate-100 rounded-xl p-1">{tabs.map(t => <button key={t.id} onClick={() => onChange(t.id)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${active === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t.label}{t.badge > 0 && <span className="ml-1.5 text-[10px] bg-rose-500 text-white px-1.5 py-0.5 rounded-full">{t.badge}</span>}</button>)}</div>;
 const CB = ({ onClick, dir }) => <button onClick={onClick} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 cursor-pointer"><Ic d={dir === "l" ? ic.chevL : ic.chevR} size={16} /></button>;
@@ -150,24 +151,28 @@ const SDash = ({ myStore, sales, snapshots }) => {
 // ══════════════════════════════════════
 // 🏪 STORE: Sales Input (GAS matrix)
 // ══════════════════════════════════════
-const SInput = ({ myStore, employees, multipliers, sales, onSubmit }) => {
+const SInput = ({ myStore, employees, multipliers, sales, onSubmit, onDeleteByDate }) => {
   const me = employees.filter(e => e.isActive && e.homeStore === myStore);
   const [date, setDate] = useState(today()); const [done, setDone] = useState(false);
   const init = () => { const m = {}; me.forEach(e => { m[e.id] = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 } }; }); return m; };
   const [mx, setMx] = useState(() => init());
-  useEffect(() => { setMx(init()); }, [myStore]);
+  useEffect(() => { setMx(init()); }, [myStore, employees]);
   const upd = (eid, type, p, val) => { const v = Math.max(0, parseInt(val) || 0); setMx(prev => ({ ...prev, [eid]: { ...prev[eid], [type]: { ...prev[eid][type], [p]: v } } })); };
   const dup = useMemo(() => sales.some(s => !s.isDeleted && s.reportStore === myStore && s.reportDate === date), [sales, myStore, date]);
   const tot = useMemo(() => { const t = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, ts: 0, tc: 0, sc: 0 }; Object.values(mx).forEach(m => { PROMOTIONS.forEach(p => { t.s[p] += m.s[p]; t.c[p] += m.c[p]; t.ts += m.s[p]; t.tc += m.c[p]; t.sc += (m.s[p] - m.c[p]) * (multipliers[p] || 1); }); }); t.sc = Math.round(t.sc * 10) / 10; return t; }, [mx, multipliers]);
   const hasD = tot.ts > 0 || tot.tc > 0;
+  const isFuture = date > today();
   const submit = () => {
-    Object.entries(mx).forEach(([eid, m]) => { const emp = me.find(e => e.id === eid); if (!emp) return; PROMOTIONS.forEach(p => { for (let i = 0; i < (m.s[p] || 0); i++) onSubmit({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "판매", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); for (let i = 0; i < (m.c[p] || 0); i++) onSubmit({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "취소", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); }); });
+    if (dup) onDeleteByDate(date, myStore);
+    const batch = [];
+    Object.entries(mx).forEach(([eid, m]) => { const emp = me.find(e => e.id === eid); if (!emp) return; PROMOTIONS.forEach(p => { for (let i = 0; i < (m.s[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "판매", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); for (let i = 0; i < (m.c[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "취소", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); }); });
+    onSubmit(batch);
     setDone(true); setTimeout(() => { setMx(init()); setDone(false); }, 1500);
   };
   const NC = ({ value, onChange, hl }) => <input type="number" min="0" value={value || ""} placeholder="0" onChange={e => onChange(e.target.value)} className={`w-full text-center border rounded-lg px-1 py-2 text-sm font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400 ${value > 0 ? (hl === "s" ? "bg-blue-50 border-blue-200 text-blue-800" : "bg-rose-50 border-rose-200 text-rose-700") : "bg-white border-slate-200 text-slate-400"}`} />;
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">판매 등록</h1><p className="text-slate-500 text-sm mb-6">{myStore} 판매 실적 입력</p>
-    <Card className="p-4 mb-4"><div className="flex items-center gap-4 flex-wrap"><div><Label>판매일자</Label><Inp type="date" value={date} onChange={setDate} className="w-48" /></div><div className="pt-5">{dup ? <Badge color="orange">이미 제출됨</Badge> : <Badge color="green">신규 제출 가능</Badge>}</div></div></Card>
+    <Card className="p-4 mb-4"><div className="flex items-center gap-4 flex-wrap"><div><Label>판매일자</Label><Inp type="date" value={date} onChange={setDate} className="w-48" /></div><div className="pt-5">{isFuture ? <Badge color="red">미래 날짜 불가</Badge> : dup ? <Badge color="orange">이미 제출됨</Badge> : <Badge color="green">신규 제출 가능</Badge>}</div></div></Card>
     <Card className="overflow-hidden mb-4"><div className="overflow-x-auto"><table className="w-full text-sm">
       <thead>
         <tr className="border-b border-slate-200"><th colSpan={2} className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 bg-slate-50">직원</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-blue-700 bg-blue-50/50 border-l border-slate-200">판매</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-rose-600 bg-rose-50/50 border-l border-slate-200">취소</th><th className="px-3 py-2 text-center text-[11px] font-semibold bg-slate-50 border-l border-slate-200">점수</th></tr>
@@ -176,7 +181,7 @@ const SInput = ({ myStore, employees, multipliers, sales, onSubmit }) => {
       <tbody>{me.map(emp => { const m = mx[emp.id]; if (!m) return null; const sc = PROMOTIONS.reduce((a, p) => a + (m.s[p] - m.c[p]) * (multipliers[p] || 1), 0); return <tr key={emp.id} className="border-b border-slate-50"><td className="px-3 py-2 font-semibold">{emp.name}</td><td className="px-3 py-2 text-xs text-slate-500">{emp.pos}</td>{PROMOTIONS.map(p => <td key={`s${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.s[p]} onChange={v => upd(emp.id, "s", p, v)} hl="s" /></td>)}{PROMOTIONS.map(p => <td key={`c${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.c[p]} onChange={v => upd(emp.id, "c", p, v)} hl="c" /></td>)}<td className={`px-3 py-2 text-center font-bold tabular-nums border-l border-slate-100 ${sc > 0 ? "text-emerald-600" : sc < 0 ? "text-rose-500" : "text-slate-300"}`}>{sc !== 0 ? Math.round(sc * 10) / 10 : "-"}</td></tr>; })}</tbody>
       <tfoot><tr className="bg-slate-100 font-bold border-t-2 border-slate-300"><td colSpan={2} className="px-3 py-3">합계</td>{PROMOTIONS.map(p => <td key={`ts${p}`} className="px-3 py-3 text-center text-blue-700 tabular-nums border-l border-slate-200">{tot.s[p] || "-"}</td>)}{PROMOTIONS.map(p => <td key={`tc${p}`} className="px-3 py-3 text-center text-rose-600 tabular-nums border-l border-slate-200">{tot.c[p] || "-"}</td>)}<td className="px-3 py-3 text-center text-emerald-700 tabular-nums border-l border-slate-200">{tot.sc}</td></tr></tfoot>
     </table></div></Card>
-    <Card className="p-5"><div className="flex items-center gap-6 text-sm mb-4"><span className="text-slate-500">판매: <strong className="text-blue-700">{tot.ts}건</strong></span><span className="text-slate-500">취소: <strong className="text-rose-600">{tot.tc}건</strong></span><span className="text-slate-500">점수: <strong className="text-emerald-700">{tot.sc}</strong></span></div><div className="flex gap-3">{!dup ? <Btn onClick={submit} className="flex-1" disabled={!hasD || done}>{done ? "✓ 제출 완료" : "제출"}</Btn> : <Btn onClick={submit} v="secondary" className="flex-1" disabled={!hasD || done}>{done ? "✓ 수정 완료" : "수정제출"}</Btn>}<Btn v="ghost" disabled={dup}>0건 보고</Btn></div></Card>
+    <Card className="p-5"><div className="flex items-center gap-6 text-sm mb-4"><span className="text-slate-500">판매: <strong className="text-blue-700">{tot.ts}건</strong></span><span className="text-slate-500">취소: <strong className="text-rose-600">{tot.tc}건</strong></span><span className="text-slate-500">점수: <strong className="text-emerald-700">{tot.sc}</strong></span></div><div className="flex gap-3">{!dup ? <Btn onClick={submit} className="flex-1" disabled={!hasD || done || isFuture}>{done ? "✓ 제출 완료" : "제출"}</Btn> : <Btn onClick={submit} v="secondary" className="flex-1" disabled={!hasD || done || isFuture}>{done ? "✓ 수정 완료" : "수정제출"}</Btn>}<Btn v="ghost" disabled={dup || isFuture}>0건 보고</Btn></div></Card>
   </div>;
 };
 
@@ -292,7 +297,7 @@ const SCal = ({ myStore, sales, employees, onDelete }) => {
 const SEmp = ({ myStore, employees, onRequest }) => {
   const [modal, setModal] = useState(null);
   const me = employees.filter(e => e.homeStore === myStore);
-  const submit = () => { if (!modal) return; onRequest({ id: `req_${Date.now()}`, type: modal.type, store: myStore, employeeName: modal.emp?.name || modal.nn, detail: modal.type === "직급변동" ? `${modal.emp?.pos} → ${modal.np}` : modal.type === "입사" ? `${modal.nn} / ${modal.np}` : "퇴사", reason: modal.reason, status: "pending", category: "직원변경", createdAt: new Date().toISOString() }); setModal(null); };
+  const submit = () => { if (!modal) return; if (modal.type === "입사" && !modal.nn.trim()) return; onRequest({ id: `req_${Date.now()}`, type: modal.type, store: myStore, employeeName: modal.emp?.name || modal.nn.trim(), detail: modal.type === "직급변동" ? `${modal.emp?.pos} → ${modal.np}` : modal.type === "입사" ? `${modal.nn.trim()} / ${modal.np}` : "퇴사", reason: modal.reason, status: "pending", category: "직원변경", createdAt: new Date().toISOString() }); setModal(null); };
   return <div>
     <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">직원 관리</h1><p className="text-slate-500 text-sm">{myStore} 직원 변경 요청</p></div><Btn onClick={() => setModal({ type: "입사", emp: null, nn: "", np: "매니저", reason: "" })}><Ic d={ic.plus} size={16} />입사 요청</Btn></div>
     <Card className="overflow-hidden"><table className="w-full text-sm"><thead><tr className="border-b border-slate-100">{["이름", "직급", "상태", "요청"].map(h => <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead><tbody>{me.map(emp => <tr key={emp.id} className="border-b border-slate-50 hover:bg-slate-50/50"><td className="px-5 py-3"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-semibold">{emp.name}</span></div></td><td className="px-5 py-3 text-slate-600">{emp.pos}</td><td className="px-5 py-3"><Badge color={emp.isActive ? "green" : "red"}>{emp.isActive ? "재직" : "퇴직"}</Badge></td><td className="px-5 py-3"><div className="flex gap-2"><Btn v="ghost" size="sm" onClick={() => setModal({ type: "직급변동", emp, np: emp.pos, reason: "" })}>직급변동</Btn>{emp.isActive && <Btn v="ghost" size="sm" onClick={() => setModal({ type: "퇴사", emp, reason: "" })}>퇴사</Btn>}</div></td></tr>)}</tbody></table></Card>
@@ -303,11 +308,11 @@ const SEmp = ({ myStore, employees, onRequest }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Ranking
 // ══════════════════════════════════════
-const HRank = ({ sales, snapshots }) => {
+const HRank = ({ sales, snapshots, multipliers }) => {
   const [period, setPeriod] = useState("total"); const [target, setTarget] = useState("emp"); const [ic2, setIc2] = useState(true); const [sc, setSc] = useState("score"); const [rf, setRf] = useState("");
   const [sm, setSm2] = useState(today().slice(0, 7)); const [sw, setSw] = useState(today()); const [sda, setSda] = useState(today()); const [cs, setCs] = useState(today()); const [ce, setCe] = useState(today());
   const po = useMemo(() => { if (period === "monthly") return { month: sm }; if (period === "weekly") return { weekRef: sw }; if (period === "daily") return { date: sda }; if (period === "custom") return { start: cs, end: ce }; return {}; }, [period, sm, sw, sda, cs, ce]);
-  const fd = filterByPeriod(sales, period, po); let data = aggregate(fd, ic2, target); if (rf) data = data.filter(d => d.region === rf);
+  const fd = filterByPeriod(sales, period, po); let data = aggregate(fd, ic2, target, multipliers); if (rf) data = data.filter(d => d.region === rf);
   const sKey = ic2 ? "netScore" : "scoreTotal"; const cKey = ic2 ? "netCount" : "countTotal"; const sortKey = sc === "score" ? sKey : cKey;
   const sorted = [...data].sort((a, b) => b[sortKey] - a[sortKey]); const mx = sorted[0]?.[sortKey] || 1;
   const pt = useMemo(() => { if (period === "total") return "전체 누적"; if (period === "monthly") { const [y, m] = sm.split("-"); return `${y}년 ${+m}월`; } if (period === "weekly") return getWeekLabel(sw); if (period === "daily") return sda; if (period === "custom") return `${cs} ~ ${ce}`; return ""; }, [period, sm, sw, sda, cs, ce]);
@@ -336,9 +341,9 @@ const HRank = ({ sales, snapshots }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Weekly Close
 // ══════════════════════════════════════
-const HClose = ({ snapshots, setSnapshots, sales }) => {
+const HClose = ({ snapshots, setSnapshots, sales, multipliers }) => {
   const [cm, setCm] = useState(false); const wk = getWeekRange(today()); const wl = getWeekLabel(today());
-  const doClose = () => { const sr = {}; const ws = sales.filter(s => !s.isDeleted && s.reportDate >= wk.start && s.reportDate <= wk.end); const sa = aggregate(ws, true, "store").sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); setSnapshots(prev => [{ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }, ...prev]); setCm(false); };
+  const doClose = () => { const sr = {}; const ws = sales.filter(s => !s.isDeleted && s.reportDate >= wk.start && s.reportDate <= wk.end); const sa = aggregate(ws, true, "store", multipliers).sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); setSnapshots(prev => [{ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }, ...prev]); setCm(false); };
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">주간 마감</h1><p className="text-slate-500 text-sm mb-6">랭킹 스냅샷 확정</p>
     <Card className="p-6 mb-6"><div className="flex items-center justify-between"><div><p className="text-sm">{wl}</p><p className="text-xs text-slate-400">{wk.start} ~ {wk.end}</p></div><Btn onClick={() => setCm(true)}><Ic d={ic.lock} size={16} />마감</Btn></div></Card>
@@ -394,19 +399,20 @@ export default function App() {
   const show = (msg) => setToast({ message: msg });
   const nav = role === "store" ? SNAV : HNAV;
   useEffect(() => { setPage(role === "store" ? "s-dash" : "h-rank"); }, [role]);
-  const addSale = (s) => { setSales(prev => [{ ...s, id: `s${Date.now()}_${Math.random().toString(36).slice(2, 5)}`, isDeleted: false }, ...prev]); };
+  const addSale = (batch) => { setSales(prev => [...batch.map((s, i) => ({ ...s, id: `s${Date.now()}_${i}_${Math.random().toString(36).slice(2, 5)}`, isDeleted: false })), ...prev]); };
   const delSale = (id) => { setSales(prev => prev.map(s => s.id === id ? { ...s, isDeleted: true } : s)); show("삭제 완료"); };
+  const delSaleByDate = (date, store) => { setSales(prev => prev.map(s => (!s.isDeleted && s.reportStore === store && s.reportDate === date) ? { ...s, isDeleted: true } : s)); };
   const addReq = (r) => { setReqs(prev => [r, ...prev]); show("요청 접수"); };
   const pc = reqs.filter(r => r.status === "pending").length;
 
   const rp = () => {
     switch (page) {
       case "s-dash": return <SDash myStore={myStore} sales={sales} snapshots={snaps} />;
-      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} sales={sales} onSubmit={addSale} />;
+      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} sales={sales} onSubmit={addSale} onDeleteByDate={delSaleByDate} />;
       case "s-cal": return <SCal myStore={myStore} sales={sales} employees={emps} onDelete={delSale} />;
       case "s-emp": return <SEmp myStore={myStore} employees={emps} onRequest={addReq} />;
-      case "h-rank": return <HRank sales={sales} snapshots={snaps} />;
-      case "h-close": return <HClose snapshots={snaps} setSnapshots={setSnaps} sales={sales} />;
+      case "h-rank": return <HRank sales={sales} snapshots={snaps} multipliers={mult} />;
+      case "h-close": return <HClose snapshots={snaps} setSnapshots={setSnaps} sales={sales} multipliers={mult} />;
       case "h-approve": return <HApprove requests={reqs} setRequests={setReqs} employees={emps} setEmployees={setEmps} />;
       case "h-set": return <HSet multipliers={mult} setMultipliers={setMult} />;
       default: return null;
