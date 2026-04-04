@@ -30,6 +30,17 @@ const ALL_STORES = Object.values(REGIONS_MAP).flat();
 const STORE_REGION = {}; Object.entries(REGIONS_MAP).forEach(([r, ss]) => ss.forEach(s => { STORE_REGION[s] = r; }));
 const POSITIONS = ["슈퍼바이저", "슈퍼매니저", "매니저", "파트타이머"];
 
+const MOCK_ACCOUNTS = [
+  { id: "acc1", email: "gangnam@store.com", password: "1234", name: "강남점 관리자", role: "store", store: "강남점" },
+  { id: "acc2", email: "nowon@store.com", password: "1234", name: "노원점 관리자", role: "store", store: "노원점" },
+  { id: "acc3", email: "myeongdong@store.com", password: "1234", name: "명동점 관리자", role: "store", store: "명동점" },
+  { id: "acc4", email: "gwanggyo@store.com", password: "1234", name: "광교점 관리자", role: "store", store: "광교점" },
+  { id: "acc5", email: "suwon@store.com", password: "1234", name: "수원점 관리자", role: "store", store: "수원점" },
+  { id: "acc6", email: "dongtan@store.com", password: "1234", name: "동탄점 관리자", role: "store", store: "동탄점" },
+  { id: "acc7", email: "admin@hq.com", password: "admin", name: "본사 관리자", role: "hq", store: null },
+  { id: "acc8", email: "manager@hq.com", password: "admin", name: "본사 매니저", role: "hq", store: null },
+];
+
 const MOCK_EMP = [
   { id: "e1", name: "김민수", homeStore: "강남점", pos: "슈퍼매니저", isActive: true },
   { id: "e2", name: "이서연", homeStore: "강남점", pos: "매니저", isActive: true },
@@ -119,6 +130,42 @@ const Toggle = ({ on, onToggle, labelOn, labelOff }) => <button onClick={onToggl
 const Tabs = ({ tabs, active, onChange }) => <div className="flex gap-1 bg-slate-100 rounded-xl p-1">{tabs.map(t => <button key={t.id} onClick={() => onChange(t.id)} className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all cursor-pointer whitespace-nowrap ${active === t.id ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>{t.label}{t.badge > 0 && <span className="ml-1.5 text-[10px] bg-rose-500 text-white px-1.5 py-0.5 rounded-full">{t.badge}</span>}</button>)}</div>;
 const CB = ({ onClick, dir }) => <button onClick={onClick} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-500 cursor-pointer"><Ic d={dir === "l" ? ic.chevL : ic.chevR} size={16} /></button>;
 const Spark = ({ data, w = 120, h = 32, color = "#3b82f6" }) => { if (!data || data.length < 2) return null; const mn = Math.min(...data); const mx = Math.max(...data) || 1; const r = mx - mn || 1; const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - mn) / r) * h * 0.8 - h * 0.1}`).join(" "); return <svg width={w} height={h}><polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>; };
+
+// ══════════════════════════════════════
+// 🔐 LOGIN
+// ══════════════════════════════════════
+const Login = ({ onLogin }) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [showAccounts, setShowAccounts] = useState(false);
+  const handleLogin = () => {
+    const acc = MOCK_ACCOUNTS.find(a => a.email === email && a.password === password);
+    if (acc) { onLogin(acc); } else { setError("이메일 또는 비밀번호가 올바르지 않습니다."); }
+  };
+  const quickLogin = (acc) => onLogin(acc);
+  return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
+    <div className="w-full max-w-md">
+      <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4 text-3xl">🛏️</div><h1 className="text-2xl font-extrabold text-white">매트리스 판매실적 관리</h1><p className="text-sm text-white/50 mt-1">7대장 판매실적 등록시스템</p></div>
+      <Card className="p-6">
+        <div className="space-y-4">
+          <div><Label>이메일</Label><Inp value={email} onChange={v => { setEmail(v); setError(""); }} placeholder="이메일을 입력하세요" /></div>
+          <div><Label>비밀번호</Label><Inp type="password" value={password} onChange={v => { setPassword(v); setError(""); }} placeholder="비밀번호를 입력하세요" /></div>
+          {error && <p className="text-sm text-rose-500 font-semibold">{error}</p>}
+          <Btn onClick={handleLogin} className="w-full" disabled={!email || !password}>로그인</Btn>
+        </div>
+        <div className="mt-6 pt-4 border-t border-slate-100">
+          <button onClick={() => setShowAccounts(p => !p)} className="w-full text-xs text-slate-400 hover:text-slate-600 cursor-pointer font-semibold">{showAccounts ? "계정 목록 닫기" : "테스트 계정 보기"}</button>
+          {showAccounts && <div className="mt-3 space-y-2">{MOCK_ACCOUNTS.map(acc => <button key={acc.id} onClick={() => quickLogin(acc)} className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors text-left">
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${acc.role === "hq" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>{acc.role === "hq" ? "🏢" : "🏪"}</div>
+            <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-800 truncate">{acc.name}</div><div className="text-[11px] text-slate-400 truncate">{acc.email}</div></div>
+            <Badge color={acc.role === "hq" ? "blue" : "green"}>{acc.role === "hq" ? "본사" : "지점"}</Badge>
+          </button>)}</div>}
+        </div>
+      </Card>
+    </div>
+  </div>;
+};
 
 // ══════════════════════════════════════
 // 🏪 STORE: Dashboard
@@ -391,14 +438,19 @@ const SNAV = [{ id: "s-dash", label: "대시보드", icon: ic.home }, { id: "s-i
 const HNAV = [{ id: "h-rank", label: "랭킹 조회", icon: ic.trophy }, { id: "h-close", label: "주간 마감", icon: ic.lock }, { id: "h-approve", label: "승인센터", icon: ic.clipboard }, { id: "h-set", label: "환산점수", icon: ic.settings }];
 
 export default function App() {
-  const [role, setRole] = useState("store"); const [page, setPage] = useState("s-dash"); const [sideOpen, setSideOpen] = useState(false); const [toast, setToast] = useState(null);
-  const [myStore, setMyStore] = useState("강남점"); const [mult, setMult] = useState({ ...DEFAULT_MULT });
+  const [account, setAccount] = useState(null);
+  const [page, setPage] = useState("s-dash"); const [sideOpen, setSideOpen] = useState(false); const [toast, setToast] = useState(null);
+  const [mult, setMult] = useState({ ...DEFAULT_MULT });
   const [sales, setSales] = useState(() => genSales()); const [emps, setEmps] = useState(MOCK_EMP);
   const [reqs, setReqs] = useState([{ id: "r0", type: "가입", category: "가입승인", employeeName: "new@gmail.com", store: "강남점", detail: "접근 요청", reason: "신규", status: "pending", createdAt: new Date().toISOString() }]);
   const [snaps, setSnaps] = useState(() => genSnaps());
   const show = (msg) => setToast({ message: msg });
+  const role = account?.role === "hq" ? "hq" : "store";
+  const myStore = account?.store || "강남점";
   const nav = role === "store" ? SNAV : HNAV;
-  useEffect(() => { setPage(role === "store" ? "s-dash" : "h-rank"); }, [role]);
+  const handleLogin = (acc) => { setAccount(acc); setPage(acc.role === "hq" ? "h-rank" : "s-dash"); };
+  const handleLogout = () => { setAccount(null); setPage("s-dash"); };
+  if (!account) return <Login onLogin={handleLogin} />;
   const addSale = (batch) => { setSales(prev => [...batch.map((s, i) => ({ ...s, id: `s${Date.now()}_${i}_${Math.random().toString(36).slice(2, 5)}`, isDeleted: false })), ...prev]); };
   const delSale = (id) => { setSales(prev => prev.map(s => s.id === id ? { ...s, isDeleted: true } : s)); show("삭제 완료"); };
   const delSaleByDate = (date, store) => { setSales(prev => prev.map(s => (!s.isDeleted && s.reportStore === store && s.reportDate === date) ? { ...s, isDeleted: true } : s)); };
@@ -422,12 +474,12 @@ export default function App() {
   return <div className="min-h-screen bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
     <div className={`fixed inset-y-0 left-0 z-40 w-60 transform transition-transform duration-300 lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"} ${role === "store" ? "bg-slate-900" : "bg-indigo-950"}`}>
       <div className="px-5 py-4 border-b border-white/10"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-lg">{role === "store" ? "🏪" : "🏢"}</div><div><div className="text-white font-bold text-sm">{role === "store" ? myStore : "본사"}</div><div className="text-[10px] text-white/40 uppercase tracking-widest">{role === "store" ? "Store" : "HQ"}</div></div></div></div>
-      <div className="px-3 py-3 border-b border-white/10"><div className="flex gap-1 bg-white/5 rounded-xl p-1">{[{ v: "store", l: "🏪 지점" }, { v: "hq", l: "🏢 본사" }].map(r => <button key={r.v} onClick={() => { setRole(r.v); setSideOpen(false); }} className={`flex-1 py-2 rounded-lg text-xs font-semibold cursor-pointer ${role === r.v ? "bg-white/15 text-white" : "text-white/40"}`}>{r.l}</button>)}</div>{role === "store" && <select value={myStore} onChange={e => setMyStore(e.target.value)} className="w-full mt-2 bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-xs text-white/80 focus:outline-none">{ALL_STORES.map(s => <option key={s} value={s} className="text-slate-900">{s}</option>)}</select>}</div>
+      <div className="px-3 py-3 border-b border-white/10"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-bold text-white">{account.name[0]}</div><div className="flex-1 min-w-0"><div className="text-xs font-semibold text-white/80 truncate">{account.name}</div><div className="text-[10px] text-white/40 truncate">{account.email}</div></div></div><button onClick={handleLogout} className="w-full mt-2 py-1.5 rounded-lg text-[11px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/5 cursor-pointer transition-colors">로그아웃</button></div>
       <nav className="px-3 py-3 space-y-0.5">{nav.map(item => <button key={item.id} onClick={() => { setPage(item.id); setSideOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer ${page === item.id ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/5"}`}><Ic d={item.icon} size={17} /><span>{item.label}</span>{item.id === "h-approve" && pc > 0 && <span className="ml-auto bg-rose-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{pc}</span>}</button>)}</nav>
     </div>
     {sideOpen && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setSideOpen(false)} />}
     <div className="lg:ml-60">
-      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">Mock</span></div></div></header>
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">{account.name}</span></div></div></header>
       <main className="p-5 max-w-6xl mx-auto">{rp()}</main>
     </div>
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
