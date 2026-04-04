@@ -1,4 +1,14 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { auth, googleProvider } from "./firebase";
+import {
+  subscribeSales, addSalesBatch, softDeleteSale, softDeleteSalesByDate,
+  subscribeEmployees, updateEmployee, addEmployee,
+  subscribeConfig, saveConfig,
+  subscribeSnapshots, addSnapshot,
+  subscribeRequests, addRequest, updateRequest,
+  getUserStore,
+} from "./firestore";
 
 // ── SVG Icon Paths ──
 const ic = {
@@ -30,50 +40,8 @@ const ALL_STORES = Object.values(REGIONS_MAP).flat();
 const STORE_REGION = {}; Object.entries(REGIONS_MAP).forEach(([r, ss]) => ss.forEach(s => { STORE_REGION[s] = r; }));
 const POSITIONS = ["슈퍼바이저", "슈퍼매니저", "매니저", "파트타이머"];
 
-const MOCK_ACCOUNTS = [
-  { id: "acc1", email: "gangnam@store.com", password: "1234", name: "강남점 관리자", role: "store", store: "강남점" },
-  { id: "acc2", email: "nowon@store.com", password: "1234", name: "노원점 관리자", role: "store", store: "노원점" },
-  { id: "acc3", email: "myeongdong@store.com", password: "1234", name: "명동점 관리자", role: "store", store: "명동점" },
-  { id: "acc4", email: "gwanggyo@store.com", password: "1234", name: "광교점 관리자", role: "store", store: "광교점" },
-  { id: "acc5", email: "suwon@store.com", password: "1234", name: "수원점 관리자", role: "store", store: "수원점" },
-  { id: "acc6", email: "dongtan@store.com", password: "1234", name: "동탄점 관리자", role: "store", store: "동탄점" },
-  { id: "acc7", email: "admin@hq.com", password: "admin", name: "본사 관리자", role: "hq", store: null },
-  { id: "acc8", email: "manager@hq.com", password: "admin", name: "본사 매니저", role: "hq", store: null },
-];
-
-const MOCK_EMP = [
-  { id: "e1", name: "김민수", homeStore: "강남점", pos: "슈퍼매니저", isActive: true },
-  { id: "e2", name: "이서연", homeStore: "강남점", pos: "매니저", isActive: true },
-  { id: "e3", name: "박지훈", homeStore: "노원점", pos: "슈퍼바이저", isActive: true },
-  { id: "e4", name: "최유진", homeStore: "명동점", pos: "매니저", isActive: true },
-  { id: "e5", name: "정하늘", homeStore: "광교점", pos: "슈퍼매니저", isActive: true },
-  { id: "e6", name: "강동현", homeStore: "수원점", pos: "파트타이머", isActive: true },
-  { id: "e7", name: "윤서아", homeStore: "동탄점", pos: "슈퍼바이저", isActive: true },
-  { id: "e8", name: "조민재", homeStore: "대전둔산점", pos: "매니저", isActive: true },
-  { id: "e9", name: "한예슬", homeStore: "대구수성점", pos: "슈퍼매니저", isActive: true },
-  { id: "e10", name: "임도윤", homeStore: "광주점", pos: "매니저", isActive: true },
-  { id: "e11", name: "송태양", homeStore: "강남점", pos: "파트타이머", isActive: true },
-  { id: "e12", name: "오지민", homeStore: "수원점", pos: "매니저", isActive: true },
-];
-
-const genSales = () => {
-  const s = []; const now = new Date();
-  for (let i = 0; i < 180; i++) {
-    const emp = MOCK_EMP[Math.floor(Math.random() * MOCK_EMP.length)];
-    const d = new Date(now); d.setDate(d.getDate() - Math.floor(Math.random() * 40));
-    const promo = PROMOTIONS[Math.floor(Math.random() * 3)];
-    const cat = Math.random() > 0.12 ? "판매" : "취소";
-    const cnt = Math.floor(Math.random() * 4) + 1;
-    s.push({ id: `s${i}`, reportDate: d.toISOString().split("T")[0], reportStore: emp.homeStore, homeStore: emp.homeStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: promo, count: cnt, category: cat, score: Math.round(cnt * (DEFAULT_MULT[promo] || 1) * 10) / 10, region: STORE_REGION[emp.homeStore] || "기타", isDeleted: false });
-  }
-  return s.sort((a, b) => b.reportDate.localeCompare(a.reportDate));
-};
-
-const genSnaps = () => {
-  const snaps = []; const now = new Date();
-  for (let w = 0; w < 6; w++) { const d = new Date(now); d.setDate(d.getDate() - w * 7); const sr = {}; ALL_STORES.forEach(st => { sr[st] = Math.floor(Math.random() * ALL_STORES.length) + 1; }); snaps.push({ weekKey: `${d.getFullYear()}-W${String(w + 10).padStart(2, "0")}`, date: d.toISOString().split("T")[0], storeRanks: sr, closedAt: d.toISOString(), closedBy: "admin" }); }
-  return snaps;
-};
+// Google SVG icon path
+const icGoogle = "M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z";
 
 // ── Helpers ──
 const today = () => new Date().toISOString().split("T")[0];
@@ -132,35 +100,23 @@ const CB = ({ onClick, dir }) => <button onClick={onClick} className="p-1.5 roun
 const Spark = ({ data, w = 120, h = 32, color = "#3b82f6" }) => { if (!data || data.length < 2) return null; const mn = Math.min(...data); const mx = Math.max(...data) || 1; const r = mx - mn || 1; const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - ((v - mn) / r) * h * 0.8 - h * 0.1}`).join(" "); return <svg width={w} height={h}><polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>; };
 
 // ══════════════════════════════════════
-// 🔐 LOGIN
+// 🔐 LOGIN (Google Auth)
 // ══════════════════════════════════════
-const Login = ({ onLogin }) => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [showAccounts, setShowAccounts] = useState(false);
-  const handleLogin = () => {
-    const acc = MOCK_ACCOUNTS.find(a => a.email === email && a.password === password);
-    if (acc) { onLogin(acc); } else { setError("이메일 또는 비밀번호가 올바르지 않습니다."); }
-  };
-  const quickLogin = (acc) => onLogin(acc);
+const Login = ({ onGoogleLogin, loading, error }) => {
   return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
     <div className="w-full max-w-md">
       <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4 text-3xl">🛏️</div><h1 className="text-2xl font-extrabold text-white">매트리스 판매실적 관리</h1><p className="text-sm text-white/50 mt-1">7대장 판매실적 등록시스템</p></div>
       <Card className="p-6">
         <div className="space-y-4">
-          <div><Label>이메일</Label><Inp value={email} onChange={v => { setEmail(v); setError(""); }} placeholder="이메일을 입력하세요" /></div>
-          <div><Label>비밀번호</Label><Inp type="password" value={password} onChange={v => { setPassword(v); setError(""); }} placeholder="비밀번호를 입력하세요" /></div>
-          {error && <p className="text-sm text-rose-500 font-semibold">{error}</p>}
-          <Btn onClick={handleLogin} className="w-full" disabled={!email || !password}>로그인</Btn>
+          <p className="text-sm text-slate-500 text-center">등록된 Google 계정으로 로그인하세요</p>
+          {error && <div className="p-3 rounded-xl bg-rose-50 border border-rose-200"><p className="text-sm text-rose-600 font-semibold">{error}</p></div>}
+          <button onClick={onGoogleLogin} disabled={loading} className={`w-full flex items-center justify-center gap-3 px-4 py-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all font-semibold text-sm text-slate-700 shadow-sm ${loading ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <svg width="18" height="18" viewBox="0 0 24 24"><path d={icGoogle} fill="#4285F4" /></svg>
+            {loading ? "로그인 중..." : "Google 계정으로 로그인"}
+          </button>
         </div>
         <div className="mt-6 pt-4 border-t border-slate-100">
-          <button onClick={() => setShowAccounts(p => !p)} className="w-full text-xs text-slate-400 hover:text-slate-600 cursor-pointer font-semibold">{showAccounts ? "계정 목록 닫기" : "테스트 계정 보기"}</button>
-          {showAccounts && <div className="mt-3 space-y-2">{MOCK_ACCOUNTS.map(acc => <button key={acc.id} onClick={() => quickLogin(acc)} className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors text-left">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-sm ${acc.role === "hq" ? "bg-indigo-100 text-indigo-700" : "bg-emerald-100 text-emerald-700"}`}>{acc.role === "hq" ? "🏢" : "🏪"}</div>
-            <div className="flex-1 min-w-0"><div className="text-sm font-semibold text-slate-800 truncate">{acc.name}</div><div className="text-[11px] text-slate-400 truncate">{acc.email}</div></div>
-            <Badge color={acc.role === "hq" ? "blue" : "green"}>{acc.role === "hq" ? "본사" : "지점"}</Badge>
-          </button>)}</div>}
+          <p className="text-[11px] text-slate-400 text-center">관리자에게 등록된 계정만 접속할 수 있습니다</p>
         </div>
       </Card>
     </div>
@@ -170,11 +126,11 @@ const Login = ({ onLogin }) => {
 // ══════════════════════════════════════
 // 🏪 STORE: Dashboard
 // ══════════════════════════════════════
-const SDash = ({ myStore, sales, snapshots }) => {
+const SDash = ({ myStore, sales, snapshots, employees }) => {
   const ls = snapshots[0]; const ps = snapshots[1];
   const cr = ls?.storeRanks?.[myStore] || "-"; const pr = ps?.storeRanks?.[myStore] || null; const rc = pr ? pr - cr : 0;
   const td = snapshots.slice().reverse().map(sn => ALL_STORES.length - (sn.storeRanks?.[myStore] || ALL_STORES.length) + 1);
-  const me = MOCK_EMP.filter(e => e.homeStore === myStore && e.isActive);
+  const me = employees.filter(e => e.homeStore === myStore && e.isActive);
   const ms = sales.filter(s => !s.isDeleted && s.homeStore === myStore && s.reportDate.slice(0, 7) === today().slice(0, 7) && s.category === "판매");
   const msc = Math.round(ms.reduce((a, s) => a + s.score, 0) * 10) / 10;
   return <div>
@@ -388,9 +344,9 @@ const HRank = ({ sales, snapshots, multipliers }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Weekly Close
 // ══════════════════════════════════════
-const HClose = ({ snapshots, setSnapshots, sales, multipliers }) => {
+const HClose = ({ snapshots, onClose, sales, multipliers }) => {
   const [cm, setCm] = useState(false); const wk = getWeekRange(today()); const wl = getWeekLabel(today());
-  const doClose = () => { const sr = {}; const ws = sales.filter(s => !s.isDeleted && s.reportDate >= wk.start && s.reportDate <= wk.end); const sa = aggregate(ws, true, "store", multipliers).sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); setSnapshots(prev => [{ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }, ...prev]); setCm(false); };
+  const doClose = () => { const sr = {}; const ws = sales.filter(s => !s.isDeleted && s.reportDate >= wk.start && s.reportDate <= wk.end); const sa = aggregate(ws, true, "store", multipliers).sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); onClose({ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }); setCm(false); };
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">주간 마감</h1><p className="text-slate-500 text-sm mb-6">랭킹 스냅샷 확정</p>
     <Card className="p-6 mb-6"><div className="flex items-center justify-between"><div><p className="text-sm">{wl}</p><p className="text-xs text-slate-400">{wk.start} ~ {wk.end}</p></div><Btn onClick={() => setCm(true)}><Ic d={ic.lock} size={16} />마감</Btn></div></Card>
@@ -403,12 +359,12 @@ const HClose = ({ snapshots, setSnapshots, sales, multipliers }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Approvals
 // ══════════════════════════════════════
-const HApprove = ({ requests, setRequests, employees, setEmployees }) => {
+const HApprove = ({ requests, onApprove, onReject }) => {
   const [tf, setTf] = useState("all"); const [sf, setSf] = useState("pending");
   const fd = requests.filter(r => (tf === "all" || r.category === tf) && (sf === "all" || r.status === sf));
   const pc = requests.filter(r => r.status === "pending").length;
-  const approve = (req) => { setRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "approved", processedAt: new Date().toISOString() } : r)); if (req.type === "퇴사") setEmployees(prev => prev.map(e => e.name === req.employeeName && e.homeStore === req.store ? { ...e, isActive: false } : e)); else if (req.type === "직급변동") { const np = req.detail.split(" → ")[1]; if (np) setEmployees(prev => prev.map(e => e.name === req.employeeName && e.homeStore === req.store ? { ...e, pos: np } : e)); } else if (req.type === "입사") { const [name, pos] = req.detail.split(" / "); setEmployees(prev => [...prev, { id: `e_${Date.now()}`, name, homeStore: req.store, pos: pos || "매니저", isActive: true }]); } };
-  const reject = (req) => setRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: "rejected" } : r));
+  const approve = (req) => onApprove(req);
+  const reject = (req) => onReject(req);
   return <div>
     <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">승인센터</h1><p className="text-slate-500 text-sm">가입 및 직원 변경 요청</p></div>{pc > 0 && <Badge color="red">{pc}건 대기</Badge>}</div>
     <Card className="p-4 mb-6"><div className="flex items-center gap-4 flex-wrap"><Tabs tabs={[{ id: "all", label: "전체", badge: pc }, { id: "가입승인", label: "가입" }, { id: "직원변경", label: "직원변경" }]} active={tf} onChange={setTf} /><div className="ml-auto"><Tabs tabs={[{ id: "pending", label: "대기" }, { id: "approved", label: "승인" }, { id: "rejected", label: "반려" }, { id: "all", label: "전체" }]} active={sf} onChange={setSf} /></div></div></Card>
@@ -419,9 +375,9 @@ const HApprove = ({ requests, setRequests, employees, setEmployees }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Settings
 // ══════════════════════════════════════
-const HSet = ({ multipliers, setMultipliers }) => {
+const HSet = ({ multipliers, onSave }) => {
   const [d, setD] = useState({ ...multipliers }); const [sv, setSv] = useState(false);
-  const save = () => { setMultipliers({ ...d }); setSv(true); setTimeout(() => setSv(false), 2000); };
+  const save = () => { onSave({ ...d }); setSv(true); setTimeout(() => setSv(false), 2000); };
   const ch = JSON.stringify(d) !== JSON.stringify(multipliers);
   return <div className="max-w-xl mx-auto">
     <h1 className="text-2xl font-bold text-slate-900 mb-1">환산점수 설정</h1><p className="text-slate-500 text-sm mb-6">프로모션별 계수</p>
@@ -438,35 +394,124 @@ const SNAV = [{ id: "s-dash", label: "대시보드", icon: ic.home }, { id: "s-i
 const HNAV = [{ id: "h-rank", label: "랭킹 조회", icon: ic.trophy }, { id: "h-close", label: "주간 마감", icon: ic.lock }, { id: "h-approve", label: "승인센터", icon: ic.clipboard }, { id: "h-set", label: "환산점수", icon: ic.settings }];
 
 export default function App() {
-  const [account, setAccount] = useState(null);
+  // ── Auth state ──
+  const [user, setUser] = useState(null);
+  const [userProfile, setUserProfile] = useState(null); // { role, store, name, email }
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+
+  // ── App state ──
   const [page, setPage] = useState("s-dash"); const [sideOpen, setSideOpen] = useState(false); const [toast, setToast] = useState(null);
   const [mult, setMult] = useState({ ...DEFAULT_MULT });
-  const [sales, setSales] = useState(() => genSales()); const [emps, setEmps] = useState(MOCK_EMP);
-  const [reqs, setReqs] = useState([{ id: "r0", type: "가입", category: "가입승인", employeeName: "new@gmail.com", store: "강남점", detail: "접근 요청", reason: "신규", status: "pending", createdAt: new Date().toISOString() }]);
-  const [snaps, setSnaps] = useState(() => genSnaps());
-  const show = (msg) => setToast({ message: msg });
-  const role = account?.role === "hq" ? "hq" : "store";
-  const myStore = account?.store || "강남점";
+  const [sales, setSales] = useState([]);
+  const [emps, setEmps] = useState([]);
+  const [reqs, setReqs] = useState([]);
+  const [snaps, setSnaps] = useState([]);
+  const [dataReady, setDataReady] = useState(false);
+
+  const show = useCallback((msg) => setToast({ message: msg }), []);
+
+  // ── Firebase Auth listener ──
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        // Look up user's store assignment
+        const storeInfo = await getUserStore(firebaseUser.email);
+        if (storeInfo) {
+          setUserProfile({ role: "store", store: storeInfo.storeId, name: firebaseUser.displayName || storeInfo.storeId, email: firebaseUser.email });
+          setPage("s-dash");
+        } else {
+          // Not in any store → HQ role
+          setUserProfile({ role: "hq", store: null, name: firebaseUser.displayName || "본사", email: firebaseUser.email });
+          setPage("h-rank");
+        }
+        setAuthError("");
+      } else {
+        setUser(null); setUserProfile(null); setDataReady(false);
+      }
+      setAuthLoading(false);
+    });
+    return unsub;
+  }, []);
+
+  // ── Firestore subscriptions (only when logged in) ──
+  useEffect(() => {
+    if (!user) return;
+    const unsubs = [];
+    let ready = { sales: false, emps: false, config: false, snaps: false, reqs: false };
+    const checkReady = () => { if (Object.values(ready).every(Boolean)) setDataReady(true); };
+
+    unsubs.push(subscribeSales((data) => { setSales(data); ready.sales = true; checkReady(); }));
+    unsubs.push(subscribeEmployees((data) => { setEmps(data); ready.emps = true; checkReady(); }));
+    unsubs.push(subscribeConfig((data) => {
+      if (data.multipliers) setMult(data.multipliers);
+      ready.config = true; checkReady();
+    }));
+    unsubs.push(subscribeSnapshots((data) => { setSnaps(data); ready.snaps = true; checkReady(); }));
+    unsubs.push(subscribeRequests((data) => { setReqs(data); ready.reqs = true; checkReady(); }));
+
+    return () => unsubs.forEach(fn => fn());
+  }, [user]);
+
+  // ── Auth handlers ──
+  const handleGoogleLogin = async () => {
+    setAuthLoading(true); setAuthError("");
+    try { await signInWithPopup(auth, googleProvider); }
+    catch (e) { setAuthError(e.code === "auth/popup-closed-by-user" ? "로그인이 취소되었습니다." : "로그인에 실패했습니다. 다시 시도해 주세요."); setAuthLoading(false); }
+  };
+  const handleLogout = async () => { await signOut(auth); setPage("s-dash"); };
+
+  // ── Derived state ──
+  const role = userProfile?.role === "hq" ? "hq" : "store";
+  const myStore = userProfile?.store || "";
   const nav = role === "store" ? SNAV : HNAV;
-  const handleLogin = (acc) => { setAccount(acc); setPage(acc.role === "hq" ? "h-rank" : "s-dash"); };
-  const handleLogout = () => { setAccount(null); setPage("s-dash"); };
-  if (!account) return <Login onLogin={handleLogin} />;
-  const addSale = (batch) => { setSales(prev => [...batch.map((s, i) => ({ ...s, id: `s${Date.now()}_${i}_${Math.random().toString(36).slice(2, 5)}`, isDeleted: false })), ...prev]); };
-  const delSale = (id) => { setSales(prev => prev.map(s => s.id === id ? { ...s, isDeleted: true } : s)); show("삭제 완료"); };
-  const delSaleByDate = (date, store) => { setSales(prev => prev.map(s => (!s.isDeleted && s.reportStore === store && s.reportDate === date) ? { ...s, isDeleted: true } : s)); };
-  const addReq = (r) => { setReqs(prev => [r, ...prev]); show("요청 접수"); };
   const pc = reqs.filter(r => r.status === "pending").length;
+
+  // ── CRUD handlers (Firestore) ──
+  const handleAddSales = async (batch) => { await addSalesBatch(batch); show("제출 완료"); };
+  const handleDelSale = async (id) => { await softDeleteSale(id); show("삭제 완료"); };
+  const handleDelSaleByDate = async (date, store) => { await softDeleteSalesByDate(date, store); };
+  const handleAddReq = async (r) => { await addRequest(r); show("요청 접수"); };
+
+  // HApprove handlers
+  const handleApprove = async (req) => {
+    await updateRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
+    if (req.type === "퇴사") {
+      const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
+      if (emp) await updateEmployee(emp.id, { isActive: false });
+    } else if (req.type === "직급변동") {
+      const np = req.detail.split(" → ")[1];
+      const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
+      if (emp && np) await updateEmployee(emp.id, { pos: np });
+    } else if (req.type === "입사") {
+      const [name, pos] = req.detail.split(" / ");
+      await addEmployee({ name, homeStore: req.store, pos: pos || "매니저" });
+    }
+  };
+  const handleReject = async (req) => { await updateRequest(req.id, { status: "rejected" }); };
+
+  // HClose handler
+  const handleWeeklyClose = async (snapData) => { await addSnapshot(snapData); show("마감 완료"); };
+
+  // HSet handler
+  const handleSaveMult = async (newMult) => { await saveConfig({ multipliers: newMult }); show("저장 완료"); };
+
+  // ── Loading / Login screens ──
+  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">로딩 중...</p></div></div>;
+  if (!user) return <Login onGoogleLogin={handleGoogleLogin} loading={authLoading} error={authError} />;
+  if (!dataReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">데이터 불러오는 중...</p></div></div>;
 
   const rp = () => {
     switch (page) {
-      case "s-dash": return <SDash myStore={myStore} sales={sales} snapshots={snaps} />;
-      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} sales={sales} onSubmit={addSale} onDeleteByDate={delSaleByDate} />;
-      case "s-cal": return <SCal myStore={myStore} sales={sales} employees={emps} onDelete={delSale} />;
-      case "s-emp": return <SEmp myStore={myStore} employees={emps} onRequest={addReq} />;
+      case "s-dash": return <SDash myStore={myStore} sales={sales} snapshots={snaps} employees={emps} />;
+      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} sales={sales} onSubmit={handleAddSales} onDeleteByDate={handleDelSaleByDate} />;
+      case "s-cal": return <SCal myStore={myStore} sales={sales} employees={emps} onDelete={handleDelSale} />;
+      case "s-emp": return <SEmp myStore={myStore} employees={emps} onRequest={handleAddReq} />;
       case "h-rank": return <HRank sales={sales} snapshots={snaps} multipliers={mult} />;
-      case "h-close": return <HClose snapshots={snaps} setSnapshots={setSnaps} sales={sales} multipliers={mult} />;
-      case "h-approve": return <HApprove requests={reqs} setRequests={setReqs} employees={emps} setEmployees={setEmps} />;
-      case "h-set": return <HSet multipliers={mult} setMultipliers={setMult} />;
+      case "h-close": return <HClose snapshots={snaps} onClose={handleWeeklyClose} sales={sales} multipliers={mult} />;
+      case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} />;
+      case "h-set": return <HSet multipliers={mult} onSave={handleSaveMult} />;
       default: return null;
     }
   };
@@ -474,12 +519,12 @@ export default function App() {
   return <div className="min-h-screen bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
     <div className={`fixed inset-y-0 left-0 z-40 w-60 transform transition-transform duration-300 lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"} ${role === "store" ? "bg-slate-900" : "bg-indigo-950"}`}>
       <div className="px-5 py-4 border-b border-white/10"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-lg">{role === "store" ? "🏪" : "🏢"}</div><div><div className="text-white font-bold text-sm">{role === "store" ? myStore : "본사"}</div><div className="text-[10px] text-white/40 uppercase tracking-widest">{role === "store" ? "Store" : "HQ"}</div></div></div></div>
-      <div className="px-3 py-3 border-b border-white/10"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-bold text-white">{account.name[0]}</div><div className="flex-1 min-w-0"><div className="text-xs font-semibold text-white/80 truncate">{account.name}</div><div className="text-[10px] text-white/40 truncate">{account.email}</div></div></div><button onClick={handleLogout} className="w-full mt-2 py-1.5 rounded-lg text-[11px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/5 cursor-pointer transition-colors">로그아웃</button></div>
+      <div className="px-3 py-3 border-b border-white/10"><div className="flex items-center gap-2">{user.photoURL ? <img src={user.photoURL} className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" /> : <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-bold text-white">{(userProfile?.name || "?")[0]}</div>}<div className="flex-1 min-w-0"><div className="text-xs font-semibold text-white/80 truncate">{userProfile?.name}</div><div className="text-[10px] text-white/40 truncate">{userProfile?.email}</div></div></div><button onClick={handleLogout} className="w-full mt-2 py-1.5 rounded-lg text-[11px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/5 cursor-pointer transition-colors">로그아웃</button></div>
       <nav className="px-3 py-3 space-y-0.5">{nav.map(item => <button key={item.id} onClick={() => { setPage(item.id); setSideOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer ${page === item.id ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/5"}`}><Ic d={item.icon} size={17} /><span>{item.label}</span>{item.id === "h-approve" && pc > 0 && <span className="ml-auto bg-rose-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{pc}</span>}</button>)}</nav>
     </div>
     {sideOpen && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setSideOpen(false)} />}
     <div className="lg:ml-60">
-      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">{account.name}</span></div></div></header>
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">{userProfile?.name}</span></div></div></header>
       <main className="p-5 max-w-6xl mx-auto">{rp()}</main>
     </div>
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}
