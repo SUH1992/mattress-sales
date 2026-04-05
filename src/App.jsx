@@ -213,36 +213,77 @@ const SDash = ({ myStore, snapshots, employees }) => {
 // 🏪 STORE: Sales Input (GAS matrix)
 // ══════════════════════════════════════
 const SInput = ({ myStore, employees, multipliers, onSubmit, onDeleteByDate }) => {
-  const me = employees.filter(e => e.isActive && e.homeStore === myStore);
+  const allActive = useMemo(() => employees.filter(e => e.isActive), [employees]);
+  const defaultEmps = useMemo(() => allActive.filter(e => e.homeStore === myStore), [allActive, myStore]);
+  const [selectedEmps, setSelectedEmps] = useState([]); // [{id, name, pos, homeStore}]
   const [date, setDate] = useState(today()); const [done, setDone] = useState(false);
   const [dup, setDup] = useState(false);
-  const init = () => { const m = {}; me.forEach(e => { m[e.id] = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 } }; }); return m; };
-  const [mx, setMx] = useState(() => init());
-  useEffect(() => { setMx(init()); }, [myStore, employees]);
+  const [search, setSearch] = useState(""); const [showAC, setShowAC] = useState(false);
+
+  // Initialize with default store employees
+  useEffect(() => { setSelectedEmps(defaultEmps.map(e => ({ id: e.id, name: e.name, pos: e.pos, homeStore: e.homeStore }))); }, [defaultEmps]);
+
+  const initMx = (emps) => { const m = {}; emps.forEach(e => { if (!m[e.id]) m[e.id] = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 } }; }); return m; };
+  const [mx, setMx] = useState(() => initMx(defaultEmps));
+  useEffect(() => { setMx(prev => { const next = { ...prev }; selectedEmps.forEach(e => { if (!next[e.id]) next[e.id] = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 } }; }); return next; }); }, [selectedEmps]);
+
   useEffect(() => { let cancelled = false; checkDuplicate(date, myStore).then(v => { if (!cancelled) setDup(v); }); return () => { cancelled = true; }; }, [date, myStore]);
+
+  // Autocomplete suggestions
+  const suggestions = useMemo(() => {
+    if (search.length < 2) return [];
+    const q = search.toLowerCase();
+    const selectedIds = new Set(selectedEmps.map(e => e.id));
+    return allActive.filter(e => !selectedIds.has(e.id) && e.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [search, allActive, selectedEmps]);
+
+  const addEmp = (emp) => {
+    setSelectedEmps(prev => [...prev, { id: emp.id, name: emp.name, pos: emp.pos, homeStore: emp.homeStore }]);
+    setSearch(""); setShowAC(false);
+  };
+  const removeEmp = (eid) => {
+    setSelectedEmps(prev => prev.filter(e => e.id !== eid));
+    setMx(prev => { const next = { ...prev }; delete next[eid]; return next; });
+  };
+
   const upd = (eid, type, p, val) => { const v = Math.max(0, parseInt(val) || 0); setMx(prev => ({ ...prev, [eid]: { ...prev[eid], [type]: { ...prev[eid][type], [p]: v } } })); };
-  const tot = useMemo(() => { const t = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, ts: 0, tc: 0, sc: 0 }; Object.values(mx).forEach(m => { PROMOTIONS.forEach(p => { t.s[p] += m.s[p]; t.c[p] += m.c[p]; t.ts += m.s[p]; t.tc += m.c[p]; t.sc += (m.s[p] - m.c[p]) * (multipliers[p] || 1); }); }); t.sc = Math.round(t.sc * 10) / 10; return t; }, [mx, multipliers]);
+  const tot = useMemo(() => { const t = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, ts: 0, tc: 0, sc: 0 }; Object.entries(mx).forEach(([eid, m]) => { if (!selectedEmps.find(e => e.id === eid)) return; PROMOTIONS.forEach(p => { t.s[p] += m.s[p]; t.c[p] += m.c[p]; t.ts += m.s[p]; t.tc += m.c[p]; t.sc += (m.s[p] - m.c[p]) * (multipliers[p] || 1); }); }); t.sc = Math.round(t.sc * 10) / 10; return t; }, [mx, multipliers, selectedEmps]);
   const hasD = tot.ts > 0 || tot.tc > 0;
   const isFuture = date > today();
   const submit = async () => {
     if (dup) await onDeleteByDate(date, myStore);
     const batch = [];
-    Object.entries(mx).forEach(([eid, m]) => { const emp = me.find(e => e.id === eid); if (!emp) return; PROMOTIONS.forEach(p => { for (let i = 0; i < (m.s[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "판매", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); for (let i = 0; i < (m.c[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "취소", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); }); });
+    Object.entries(mx).forEach(([eid, m]) => { const emp = selectedEmps.find(e => e.id === eid); if (!emp) return; PROMOTIONS.forEach(p => { for (let i = 0; i < (m.s[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: emp.homeStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "판매", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[emp.homeStore] || "" }); for (let i = 0; i < (m.c[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: emp.homeStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "취소", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[emp.homeStore] || "" }); }); });
     await onSubmit(batch);
     setDup(true);
-    setDone(true); setTimeout(() => { setMx(init()); setDone(false); }, 1500);
+    setDone(true); setTimeout(() => { setMx(initMx(selectedEmps)); setDone(false); }, 1500);
   };
   const NC = ({ value, onChange, hl }) => <input type="number" min="0" value={value || ""} placeholder="0" onChange={e => onChange(e.target.value)} className={`w-full text-center border rounded-lg px-1 py-2 text-sm font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400 ${value > 0 ? (hl === "s" ? "bg-blue-50 border-blue-200 text-blue-800" : "bg-rose-50 border-rose-200 text-rose-700") : "bg-white border-slate-200 text-slate-400"}`} />;
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">판매 등록</h1><p className="text-slate-500 text-sm mb-6">{myStore} 판매 실적 입력</p>
     <Card className="p-4 mb-4"><div className="flex items-center gap-4 flex-wrap"><div><Label>판매일자</Label><Inp type="date" value={date} onChange={setDate} className="w-48" /></div><div className="pt-5">{isFuture ? <Badge color="red">미래 날짜 불가</Badge> : dup ? <Badge color="orange">이미 제출됨</Badge> : <Badge color="green">신규 제출 가능</Badge>}</div></div></Card>
+    {/* Employee autocomplete */}
+    <Card className="p-4 mb-4"><Label>직원 추가 (전체 검색)</Label><div className="relative">
+      <input value={search} onChange={e => { setSearch(e.target.value); setShowAC(true); }} onFocus={() => setShowAC(true)} placeholder="직원명 2글자 이상 입력..." className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400" />
+      {showAC && suggestions.length > 0 && <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl max-h-60 overflow-auto">
+        {suggestions.map(emp => <button key={emp.id} onClick={() => addEmp(emp)} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 cursor-pointer text-left border-b border-slate-50 last:border-0">
+          <div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold shrink-0">{emp.name[0]}</div>
+          <div className="flex-1 min-w-0"><span className="font-semibold text-sm">{emp.name}</span><span className="text-slate-400 text-xs ml-1.5">({emp.homeStore})</span></div>
+          <span className="text-xs text-slate-400 shrink-0">{emp.pos}</span>
+        </button>)}
+      </div>}
+      {showAC && search.length >= 2 && suggestions.length === 0 && <div className="absolute z-30 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl p-4 text-sm text-slate-400 text-center">검색 결과 없음</div>}
+    </div>
+    {/* Close autocomplete when clicking outside */}
+    {showAC && <div className="fixed inset-0 z-20" onClick={() => setShowAC(false)} />}
+    </Card>
     <Card className="overflow-hidden mb-4"><div className="overflow-x-auto"><table className="w-full text-sm">
       <thead>
-        <tr className="border-b border-slate-200"><th colSpan={2} className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 bg-slate-50">직원</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-blue-700 bg-blue-50/50 border-l border-slate-200">판매</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-rose-600 bg-rose-50/50 border-l border-slate-200">취소</th><th className="px-3 py-2 text-center text-[11px] font-semibold bg-slate-50 border-l border-slate-200">점수</th></tr>
-        <tr className="border-b border-slate-100"><th className="px-3 py-2 text-left text-[11px] text-slate-500 w-24">이름</th><th className="px-3 py-2 text-left text-[11px] text-slate-500 w-20">직급</th>{PROMOTIONS.map(p => <th key={`s${p}`} className="px-2 py-2 text-center text-[11px] text-blue-600 w-20 border-l border-slate-100">{p}</th>)}{PROMOTIONS.map(p => <th key={`c${p}`} className="px-2 py-2 text-center text-[11px] text-rose-500 w-20 border-l border-slate-100">{p}</th>)}<th className="px-3 py-2 text-center text-[11px] text-emerald-600 w-20 border-l border-slate-200">환산</th></tr>
+        <tr className="border-b border-slate-200"><th colSpan={3} className="px-3 py-2 text-left text-[11px] font-semibold text-slate-500 bg-slate-50">직원</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-blue-700 bg-blue-50/50 border-l border-slate-200">판매</th><th colSpan={3} className="px-3 py-2 text-center text-[11px] font-bold text-rose-600 bg-rose-50/50 border-l border-slate-200">취소</th><th className="px-3 py-2 text-center text-[11px] font-semibold bg-slate-50 border-l border-slate-200">점수</th><th className="w-8 bg-slate-50" /></tr>
+        <tr className="border-b border-slate-100"><th className="px-3 py-2 text-left text-[11px] text-slate-500 w-24">이름</th><th className="px-3 py-2 text-left text-[11px] text-slate-500 w-20">직급</th><th className="px-3 py-2 text-left text-[11px] text-slate-500 w-20">소속</th>{PROMOTIONS.map(p => <th key={`s${p}`} className="px-2 py-2 text-center text-[11px] text-blue-600 w-20 border-l border-slate-100">{p}</th>)}{PROMOTIONS.map(p => <th key={`c${p}`} className="px-2 py-2 text-center text-[11px] text-rose-500 w-20 border-l border-slate-100">{p}</th>)}<th className="px-3 py-2 text-center text-[11px] text-emerald-600 w-20 border-l border-slate-200">환산</th><th /></tr>
       </thead>
-      <tbody>{me.map(emp => { const m = mx[emp.id]; if (!m) return null; const sc = PROMOTIONS.reduce((a, p) => a + (m.s[p] - m.c[p]) * (multipliers[p] || 1), 0); return <tr key={emp.id} className="border-b border-slate-50"><td className="px-3 py-2 font-semibold">{emp.name}</td><td className="px-3 py-2 text-xs text-slate-500">{emp.pos}</td>{PROMOTIONS.map(p => <td key={`s${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.s[p]} onChange={v => upd(emp.id, "s", p, v)} hl="s" /></td>)}{PROMOTIONS.map(p => <td key={`c${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.c[p]} onChange={v => upd(emp.id, "c", p, v)} hl="c" /></td>)}<td className={`px-3 py-2 text-center font-bold tabular-nums border-l border-slate-100 ${sc > 0 ? "text-emerald-600" : sc < 0 ? "text-rose-500" : "text-slate-300"}`}>{sc !== 0 ? Math.round(sc * 10) / 10 : "-"}</td></tr>; })}</tbody>
-      <tfoot><tr className="bg-slate-100 font-bold border-t-2 border-slate-300"><td colSpan={2} className="px-3 py-3">합계</td>{PROMOTIONS.map(p => <td key={`ts${p}`} className="px-3 py-3 text-center text-blue-700 tabular-nums border-l border-slate-200">{tot.s[p] || "-"}</td>)}{PROMOTIONS.map(p => <td key={`tc${p}`} className="px-3 py-3 text-center text-rose-600 tabular-nums border-l border-slate-200">{tot.c[p] || "-"}</td>)}<td className="px-3 py-3 text-center text-emerald-700 tabular-nums border-l border-slate-200">{tot.sc}</td></tr></tfoot>
+      <tbody>{selectedEmps.length === 0 ? <tr><td colSpan={11} className="px-4 py-8 text-center text-slate-400 text-sm">위 검색창에서 직원을 추가하세요</td></tr> : selectedEmps.map(emp => { const m = mx[emp.id]; if (!m) return null; const sc = PROMOTIONS.reduce((a, p) => a + (m.s[p] - m.c[p]) * (multipliers[p] || 1), 0); const isOther = emp.homeStore !== myStore; return <tr key={emp.id} className={`border-b border-slate-50 ${isOther ? "bg-amber-50/30" : ""}`}><td className="px-3 py-2 font-semibold">{emp.name}</td><td className="px-3 py-2 text-xs text-slate-500">{emp.pos}</td><td className="px-3 py-2">{isOther ? <Badge color="orange">{emp.homeStore}</Badge> : <Badge color="gray">{emp.homeStore}</Badge>}</td>{PROMOTIONS.map(p => <td key={`s${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.s[p]} onChange={v => upd(emp.id, "s", p, v)} hl="s" /></td>)}{PROMOTIONS.map(p => <td key={`c${p}`} className="px-1 py-1.5 border-l border-slate-50"><NC value={m.c[p]} onChange={v => upd(emp.id, "c", p, v)} hl="c" /></td>)}<td className={`px-3 py-2 text-center font-bold tabular-nums border-l border-slate-100 ${sc > 0 ? "text-emerald-600" : sc < 0 ? "text-rose-500" : "text-slate-300"}`}>{sc !== 0 ? Math.round(sc * 10) / 10 : "-"}</td><td className="px-1"><button onClick={() => removeEmp(emp.id)} className="p-1 rounded hover:bg-rose-100 text-slate-300 hover:text-rose-500 cursor-pointer"><Ic d={ic.x} size={12} /></button></td></tr>; })}</tbody>
+      <tfoot><tr className="bg-slate-100 font-bold border-t-2 border-slate-300"><td colSpan={3} className="px-3 py-3">합계</td>{PROMOTIONS.map(p => <td key={`ts${p}`} className="px-3 py-3 text-center text-blue-700 tabular-nums border-l border-slate-200">{tot.s[p] || "-"}</td>)}{PROMOTIONS.map(p => <td key={`tc${p}`} className="px-3 py-3 text-center text-rose-600 tabular-nums border-l border-slate-200">{tot.c[p] || "-"}</td>)}<td className="px-3 py-3 text-center text-emerald-700 tabular-nums border-l border-slate-200">{tot.sc}</td><td /></tr></tfoot>
     </table></div></Card>
     <Card className="p-5"><div className="flex items-center gap-6 text-sm mb-4"><span className="text-slate-500">판매: <strong className="text-blue-700">{tot.ts}건</strong></span><span className="text-slate-500">취소: <strong className="text-rose-600">{tot.tc}건</strong></span><span className="text-slate-500">점수: <strong className="text-emerald-700">{tot.sc}</strong></span></div><div className="flex gap-3">{!dup ? <Btn onClick={submit} className="flex-1" disabled={!hasD || done || isFuture}>{done ? "✓ 제출 완료" : "제출"}</Btn> : <Btn onClick={submit} v="secondary" className="flex-1" disabled={!hasD || done || isFuture}>{done ? "✓ 수정 완료" : "수정제출"}</Btn>}<Btn v="ghost" disabled={dup || isFuture}>0건 보고</Btn></div></Card>
   </div>;
