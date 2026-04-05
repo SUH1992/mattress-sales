@@ -102,14 +102,29 @@ export async function addEmployee(emp) {
 }
 
 // ══════════════════════════════════════
-// Stores — one-time load
+// Stores — CRUD
 // ══════════════════════════════════════
 
 export async function loadStores() {
   const snap = await getDocs(storesCol);
-  const data = {};
-  snap.docs.forEach(d => { data[d.id] = d.data(); });
-  return data;
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addStore(data) {
+  return await addDoc(storesCol, { ...data, isActive: true });
+}
+
+export async function updateStore(id, updates) {
+  await updateDoc(doc(db, "stores", id), updates);
+}
+
+// ══════════════════════════════════════
+// Change Logs — audit trail
+// ══════════════════════════════════════
+const changeLogsCol = collection(db, "changeLogs");
+
+export async function addChangeLog(entry) {
+  await addDoc(changeLogsCol, { ...entry, createdAt: new Date().toISOString() });
 }
 
 export async function getUserStore(email) {

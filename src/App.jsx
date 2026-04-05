@@ -4,7 +4,7 @@ import { auth, googleProvider } from "./firebase";
 import {
   addSalesBatch, softDeleteSale, softDeleteSalesByDate, checkDuplicate,
   loadEmployees, updateEmployee, addEmployee,
-  loadConfig, saveConfig, loadStores,
+  loadConfig, saveConfig, loadStores, addStore, updateStore, addChangeLog,
   subscribeSnapshots, addSnapshot,
   subscribeRequests, addRequest, updateRequest,
   getUserStore, loadAdminEmails,
@@ -34,6 +34,9 @@ const ic = {
   list: ["M8 6h13", "M8 12h13", "M8 18h13", "M3 6h.01", "M3 12h.01", "M3 18h.01"],
   inbox: ["M22 12h-6l-2 3H10l-2-3H2", "M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"],
   trash: ["M3 6h18", "M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"],
+  database: ["M12 2C6.48 2 2 4.02 2 6.5v11C2 19.98 6.48 22 12 22s10-2.02 10-4.5v-11C22 4.02 17.52 2 12 2z", "M2 6.5C2 8.98 6.48 11 12 11s10-2.02 10-4.5", "M2 12c0 2.48 4.48 4.5 10 4.5s10-2.02 10-4.5"],
+  edit: ["M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7", "M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"],
+  map: ["M1 6v16l7-4 8 4 7-4V2l-7 4-8-4-7 4z", "M8 2v16", "M16 6v16"],
 };
 
 const PROMOTIONS = ["일시불", "페이케어", "렌탈"];
@@ -463,10 +466,158 @@ const HSet = ({ multipliers, onSave }) => {
 };
 
 // ══════════════════════════════════════
+// 🏢 HQ: Master Data (기초정보 관리)
+// ══════════════════════════════════════
+const HMaster = ({ employees, userEmail, onRefreshEmps }) => {
+  const [tab, setTab] = useState("stores");
+  const [stores, setStores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // { mode: "add"|"edit", type: "store"|"emp", data }
+  const [toast, setToast] = useState(null);
+
+  const refresh = async () => { setLoading(true); setStores(await loadStores()); setLoading(false); };
+  useEffect(() => { refresh(); }, []);
+
+  const regions = useMemo(() => {
+    const map = {};
+    stores.forEach(s => { const r = s.region || "미지정"; if (!map[r]) map[r] = []; map[r].push(s); });
+    return map;
+  }, [stores]);
+
+  const log = (action, target, detail) => addChangeLog({ action, target, detail, by: userEmail });
+
+  // ── Store handlers ──
+  const handleSaveStore = async () => {
+    if (!modal) return;
+    if (modal.mode === "add") {
+      await addStore({ name: modal.data.name || modal.data.id, region: modal.data.region || "", managers: modal.data.managers ? modal.data.managers.split(",").map(e => e.trim()).filter(Boolean) : [], isActive: true });
+      await log("지점 추가", modal.data.name || modal.data.id, `권역: ${modal.data.region || "-"}`);
+    } else {
+      const updates = {};
+      if (modal.data.region !== undefined) updates.region = modal.data.region;
+      if (modal.data.managers !== undefined) updates.managers = modal.data.managers.split(",").map(e => e.trim()).filter(Boolean);
+      if (modal.data.isActive !== undefined) updates.isActive = modal.data.isActive;
+      await updateStore(modal.data.id, updates);
+      await log("지점 수정", modal.data.id, JSON.stringify(updates));
+    }
+    setModal(null); await refresh();
+  };
+
+  // ── Employee handlers ──
+  const handleSaveEmp = async () => {
+    if (!modal) return;
+    if (modal.mode === "add") {
+      await addEmployee({ name: modal.data.name, homeStore: modal.data.homeStore, pos: modal.data.pos || "매니저" });
+      await log("직원 추가", modal.data.name, `소속: ${modal.data.homeStore}, 직급: ${modal.data.pos}`);
+    } else {
+      const updates = {};
+      if (modal.data.pos !== undefined) updates.pos = modal.data.pos;
+      if (modal.data.homeStore !== undefined) updates.homeStore = modal.data.homeStore;
+      if (modal.data.isActive !== undefined) updates.isActive = modal.data.isActive;
+      await updateEmployee(modal.data.id, updates);
+      await log("직원 수정", modal.data.name, JSON.stringify(updates));
+    }
+    setModal(null); await onRefreshEmps();
+  };
+
+  // ── Region batch update ──
+  const handleRegionChange = async (storeId, newRegion) => {
+    await updateStore(storeId, { region: newRegion });
+    await log("권역 변경", storeId, `→ ${newRegion}`);
+    await refresh();
+  };
+
+  const [sf, setSf] = useState(""); // store filter for employees
+  const filteredEmps = sf ? employees.filter(e => e.homeStore === sf) : employees;
+
+  return <div>
+    <h1 className="text-2xl font-bold text-slate-900 mb-1">기초정보 관리</h1>
+    <p className="text-slate-500 text-sm mb-6">지점·직원·권역 마스터 데이터</p>
+
+    <Tabs tabs={[{ id: "stores", label: "🏪 지점 관리" }, { id: "emps", label: "👥 직원 관리" }, { id: "regions", label: "🗺️ 권역 매핑" }]} active={tab} onChange={setTab} />
+
+    {/* ── 1. 지점 관리 ── */}
+    {tab === "stores" && <div className="mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm text-slate-500">{stores.length}개 지점</span>
+        <Btn size="sm" onClick={() => setModal({ mode: "add", type: "store", data: { name: "", region: "", managers: "" } })}><Ic d={ic.plus} size={14} />지점 추가</Btn>
+      </div>
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm">
+        <thead><tr className="border-b border-slate-200 bg-slate-50">{["지점명", "권역", "매핑 이메일", "상태", ""].map(h => <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+        <tbody>{loading ? <tr><td colSpan={5} className="px-4 py-8 text-center text-slate-400">로딩 중...</td></tr> : stores.map(s => <tr key={s.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+          <td className="px-4 py-3 font-bold">{s.id}</td>
+          <td className="px-4 py-3"><Badge color="blue">{s.region || "-"}</Badge></td>
+          <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">{(s.managers || []).join(", ") || "-"}</td>
+          <td className="px-4 py-3"><Badge color={s.isActive !== false ? "green" : "red"}>{s.isActive !== false ? "활성" : "비활성"}</Badge></td>
+          <td className="px-4 py-3"><Btn v="ghost" size="sm" onClick={() => setModal({ mode: "edit", type: "store", data: { id: s.id, region: s.region || "", managers: (s.managers || []).join(", "), isActive: s.isActive !== false } })}><Ic d={ic.edit} size={14} /></Btn></td>
+        </tr>)}</tbody>
+      </table></div></Card>
+    </div>}
+
+    {/* ── 2. 직원 관리 ── */}
+    {tab === "emps" && <div className="mt-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <Sel value={sf} onChange={setSf} options={stores.map(s => s.id)} placeholder="전체 지점" className="w-40" />
+          <span className="text-sm text-slate-500">{filteredEmps.length}명</span>
+        </div>
+        <Btn size="sm" onClick={() => setModal({ mode: "add", type: "emp", data: { name: "", homeStore: stores[0]?.id || "", pos: "매니저" } })}><Ic d={ic.plus} size={14} />직원 추가</Btn>
+      </div>
+      <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm">
+        <thead><tr className="border-b border-slate-200 bg-slate-50">{["직원명", "소속지점", "직급", "상태", ""].map(h => <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead>
+        <tbody>{filteredEmps.map(e => <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+          <td className="px-4 py-3"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-full bg-slate-900 text-white flex items-center justify-center text-[10px] font-bold">{e.name?.[0]}</div><span className="font-semibold">{e.name}</span></div></td>
+          <td className="px-4 py-3"><Badge color="gray">{e.homeStore}</Badge></td>
+          <td className="px-4 py-3 text-slate-600">{e.pos}</td>
+          <td className="px-4 py-3"><Badge color={e.isActive ? "green" : "red"}>{e.isActive ? "재직" : "퇴직"}</Badge></td>
+          <td className="px-4 py-3"><Btn v="ghost" size="sm" onClick={() => setModal({ mode: "edit", type: "emp", data: { id: e.id, name: e.name, homeStore: e.homeStore, pos: e.pos, isActive: e.isActive } })}><Ic d={ic.edit} size={14} /></Btn></td>
+        </tr>)}</tbody>
+      </table></div></Card>
+    </div>}
+
+    {/* ── 3. 권역 매핑 ── */}
+    {tab === "regions" && <div className="mt-6 space-y-4">
+      {Object.entries(regions).sort(([a], [b]) => a.localeCompare(b)).map(([region, sts]) => <Card key={region} className="overflow-hidden">
+        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2"><Ic d={ic.map} size={16} /><span className="font-bold">{region}</span><span className="text-xs text-slate-400">{sts.length}개 지점</span></div>
+        </div>
+        <div className="p-4 space-y-2">{sts.map(s => <div key={s.id} className="flex items-center justify-between py-2 px-3 rounded-lg hover:bg-slate-50">
+          <span className="font-semibold text-sm">{s.id}</span>
+          <Sel value={s.region || ""} onChange={v => handleRegionChange(s.id, v)} options={[...new Set(stores.map(st => st.region).filter(Boolean)), "미지정"]} className="w-32 text-xs" />
+        </div>)}</div>
+      </Card>)}
+      {Object.keys(regions).length === 0 && <Card><Empty icon={ic.map} title="지점 데이터가 없습니다" /></Card>}
+    </div>}
+
+    {/* ── Modal: Store add/edit ── */}
+    <Modal open={!!modal && modal.type === "store"} onClose={() => setModal(null)} title={modal?.mode === "add" ? "지점 추가" : `${modal?.data?.id} 수정`}>
+      {modal?.type === "store" && <div className="space-y-4">
+        {modal.mode === "add" && <div><Label>지점명</Label><Inp value={modal.data.name} onChange={v => setModal(p => ({ ...p, data: { ...p.data, name: v } }))} placeholder="예: 판교점" /></div>}
+        <div><Label>권역</Label><Inp value={modal.data.region} onChange={v => setModal(p => ({ ...p, data: { ...p.data, region: v } }))} placeholder="예: 경기" /></div>
+        <div><Label>매핑 이메일 (쉼표 구분)</Label><Inp value={modal.data.managers} onChange={v => setModal(p => ({ ...p, data: { ...p.data, managers: v } }))} placeholder="user1@gmail.com, user2@gmail.com" /></div>
+        {modal.mode === "edit" && <div className="flex items-center justify-between"><Label>활성 상태</Label><Toggle on={modal.data.isActive} onToggle={() => setModal(p => ({ ...p, data: { ...p.data, isActive: !p.data.isActive } }))} labelOn="활성" labelOff="비활성" /></div>}
+        <div className="flex gap-3 justify-end pt-2"><Btn v="secondary" onClick={() => setModal(null)}>취소</Btn><Btn onClick={handleSaveStore} disabled={modal.mode === "add" && !modal.data.name?.trim()}>저장</Btn></div>
+      </div>}
+    </Modal>
+
+    {/* ── Modal: Employee add/edit ── */}
+    <Modal open={!!modal && modal.type === "emp"} onClose={() => setModal(null)} title={modal?.mode === "add" ? "직원 추가" : `${modal?.data?.name} 수정`}>
+      {modal?.type === "emp" && <div className="space-y-4">
+        {modal.mode === "add" && <div><Label>이름</Label><Inp value={modal.data.name} onChange={v => setModal(p => ({ ...p, data: { ...p.data, name: v } }))} /></div>}
+        <div><Label>소속 지점</Label><Sel value={modal.data.homeStore} onChange={v => setModal(p => ({ ...p, data: { ...p.data, homeStore: v } }))} options={stores.map(s => s.id)} /></div>
+        <div><Label>직급</Label><Sel value={modal.data.pos} onChange={v => setModal(p => ({ ...p, data: { ...p.data, pos: v } }))} options={POSITIONS} /></div>
+        {modal.mode === "edit" && <div className="flex items-center justify-between"><Label>재직 상태</Label><Toggle on={modal.data.isActive} onToggle={() => setModal(p => ({ ...p, data: { ...p.data, isActive: !p.data.isActive } }))} labelOn="재직" labelOff="퇴직" /></div>}
+        <div className="flex gap-3 justify-end pt-2"><Btn v="secondary" onClick={() => setModal(null)}>취소</Btn><Btn onClick={handleSaveEmp} disabled={modal.mode === "add" && !modal.data.name?.trim()}>저장</Btn></div>
+      </div>}
+    </Modal>
+  </div>;
+};
+
+// ══════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════
 const SNAV = [{ id: "s-dash", label: "대시보드", icon: ic.home }, { id: "s-input", label: "판매 등록", icon: ic.plus }, { id: "s-cal", label: "판매내역", icon: ic.calendar }, { id: "s-emp", label: "직원 관리", icon: ic.users }];
-const HNAV = [{ id: "h-rank", label: "랭킹 조회", icon: ic.trophy }, { id: "h-close", label: "주간 마감", icon: ic.lock }, { id: "h-approve", label: "승인센터", icon: ic.clipboard }, { id: "h-set", label: "환산점수", icon: ic.settings }];
+const HNAV = [{ id: "h-rank", label: "랭킹 조회", icon: ic.trophy }, { id: "h-close", label: "주간 마감", icon: ic.lock }, { id: "h-approve", label: "승인센터", icon: ic.clipboard }, { id: "h-master", label: "기초정보 관리", icon: ic.database }, { id: "h-set", label: "환산점수", icon: ic.settings }];
 
 export default function App() {
   // ── Auth state ──
@@ -521,7 +672,7 @@ export default function App() {
 
         // 4) New user — show join request form
         const stores = await loadStores();
-        setStoreList(Object.keys(stores));
+        setStoreList(stores.map(s => s.id));
         setUserProfile({ role: "new", store: null, name: firebaseUser.displayName || "", email });
         setAuthError(""); setAuthLoading(false);
       } else {
@@ -632,6 +783,7 @@ export default function App() {
       case "h-rank": return <HRank snapshots={snaps} multipliers={mult} />;
       case "h-close": return <HClose snapshots={snaps} onClose={handleWeeklyClose} multipliers={mult} />;
       case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} approvalRequests={approvalReqs} onApproveJoin={handleApproveJoin} onRejectJoin={handleRejectJoin} />;
+      case "h-master": return <HMaster employees={emps} userEmail={userProfile?.email} onRefreshEmps={refreshEmps} />;
       case "h-set": return <HSet multipliers={mult} onSave={handleSaveMult} />;
       default: return null;
     }
