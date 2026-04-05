@@ -53,15 +53,21 @@ const getWeekLabel = (ds) => { const w = getWeekRange(ds); const ms = new Date(w
 const shiftWeek = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + dir * 7); return x.toISOString().split("T")[0]; };
 const shiftMonth = (m, dir) => { const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + dir, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftDay = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + dir); return x.toISOString().split("T")[0]; };
+const num = (v) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+const VALID_PROMOS = new Set(["일시불", "페이케어", "렌탈"]);
 
 const aggregate = (sales, includeCancel, groupBy, multipliers = DEFAULT_MULT) => {
   const map = {};
   sales.forEach(s => {
+    const cat = s.category; const p = s.promotion;
+    if (cat !== "판매" && cat !== "취소") return;
+    if (!VALID_PROMOS.has(p) && !p?.includes("페이케어")) return;
+    const cnt = num(s.count); const sc = num(s.score);
     const key = groupBy === "emp" ? `${s.employeeName}_${s.homeStore}` : groupBy === "store" ? s.reportStore : (s.region || "기타");
     if (!map[key]) map[key] = { name: groupBy === "emp" ? s.employeeName : (groupBy === "store" ? s.reportStore : (s.region || "기타")), store: s.homeStore, position: s.positionAtTime, region: s.region || "기타", cC: 0, cK: 0, cR: 0, sC: 0, sK: 0, sR: 0, xC: 0, xK: 0, xR: 0 };
-    const m = map[key]; const isSale = s.category === "판매"; const p = s.promotion;
-    if (isSale) { if (p === "일시불") { m.cC += s.count; m.sC += s.score; } else if (p.includes("페이케어")) { m.cK += s.count; m.sK += s.score; } else { m.cR += s.count; m.sR += s.score; } }
-    else { if (p === "일시불") m.xC += s.count; else if (p.includes("페이케어")) m.xK += s.count; else m.xR += s.count; }
+    const m = map[key]; const isSale = cat === "판매";
+    if (isSale) { if (p === "일시불") { m.cC += cnt; m.sC += sc; } else if (p.includes("페이케어")) { m.cK += cnt; m.sK += sc; } else { m.cR += cnt; m.sR += sc; } }
+    else { if (p === "일시불") m.xC += cnt; else if (p.includes("페이케어")) m.xK += cnt; else m.xR += cnt; }
   });
   return Object.values(map).map(m => {
     m.countTotal = m.cC + m.cK + m.cR; m.scoreTotal = Math.round((m.sC + m.sK + m.sR) * 10) / 10;
@@ -181,12 +187,12 @@ const SDash = ({ myStore, snapshots, employees }) => {
   const td = snapshots.slice().reverse().map(sn => ALL_STORES.length - (sn.storeRanks?.[myStore] || ALL_STORES.length) + 1);
   const me = employees.filter(e => e.homeStore === myStore && e.isActive);
   const ms = salesData.filter(s => s.category === "판매");
-  const msc = Math.round(ms.reduce((a, s) => a + s.score, 0) * 10) / 10;
+  const msc = Math.round(ms.reduce((a, s) => a + num(s.score), 0) * 10) / 10;
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">{myStore} 대시보드</h1><p className="text-slate-500 text-sm mb-6">우리 매장 현황</p>
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
       <Stat label="이번달 점수" value={msc} color="blue" />
-      <Stat label="이번달 건수" value={`${ms.reduce((a, s) => a + s.count, 0)}건`} color="emerald" />
+      <Stat label="이번달 건수" value={`${ms.reduce((a, s) => a + num(s.count), 0)}건`} color="emerald" />
       <Stat label="활성 직원" value={`${me.length}명`} color="slate" />
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
         <p className="text-[11px] font-medium text-slate-500 uppercase">지난주 순위</p>
@@ -196,7 +202,7 @@ const SDash = ({ myStore, snapshots, employees }) => {
       </div>
     </div>
     <Card className="p-5 mb-6"><h2 className="font-bold mb-3">주간 순위 추이</h2><Spark data={td} w={200} h={40} color={rc >= 0 ? "#10b981" : "#ef4444"} /></Card>
-    <Card className="p-5"><h2 className="font-bold mb-3">직원별 이번달</h2><div className="space-y-3">{me.map(emp => { const sc = ms.filter(s => s.employeeName === emp.name).reduce((a, s) => a + s.score, 0); return <div key={emp.id} className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><div className="flex-1"><div className="flex items-center gap-2"><span className="font-semibold text-sm">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><div className="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min((sc / Math.max(msc, 1)) * 100 * me.length, 100)}%` }} /></div></div><div className="text-sm font-bold tabular-nums">{Math.round(sc * 10) / 10}점</div></div>; })}</div></Card>
+    <Card className="p-5"><h2 className="font-bold mb-3">직원별 이번달</h2><div className="space-y-3">{me.map(emp => { const sc = ms.filter(s => s.employeeName === emp.name).reduce((a, s) => a + num(s.score), 0); return <div key={emp.id} className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><div className="flex-1"><div className="flex items-center gap-2"><span className="font-semibold text-sm">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><div className="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.min((sc / Math.max(msc, 1)) * 100 * me.length, 100)}%` }} /></div></div><div className="text-sm font-bold tabular-nums">{Math.round(sc * 10) / 10}점</div></div>; })}</div></Card>
   </div>;
 };
 
@@ -255,7 +261,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
 
   const ds = useMemo(() => {
     const map = {};
-    my.forEach(s => { if (!map[s.reportDate]) map[s.reportDate] = { sc: 0, cc: 0, score: 0, recs: [] }; const d = map[s.reportDate]; d.recs.push(s); if (s.category === "판매") { d.sc += s.count; d.score += s.score; } else if (s.category === "취소") { d.cc += s.count; d.score -= s.score; } });
+    my.forEach(s => { if (!map[s.reportDate]) map[s.reportDate] = { sc: 0, cc: 0, score: 0, recs: [] }; const d = map[s.reportDate]; d.recs.push(s); if (s.category === "판매") { d.sc += num(s.count); d.score += num(s.score); } else if (s.category === "취소") { d.cc += num(s.count); d.score -= num(s.score); } });
     Object.values(map).forEach(d => { d.score = Math.round(d.score * 10) / 10; });
     return map;
   }, [my]);
@@ -278,7 +284,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
     if (!sd) return [];
     const recs = my.filter(s => s.reportDate === sd);
     const map = {};
-    recs.forEach(s => { if (!map[s.employeeName]) map[s.employeeName] = { name: s.employeeName, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, ts: 0 }; const e = map[s.employeeName]; e.recs.push(s); if (s.category === "판매") { e.sales[s.promotion] = (e.sales[s.promotion] || 0) + s.count; e.ts += s.score; } else if (s.category === "취소") { e.cancels[s.promotion] = (e.cancels[s.promotion] || 0) + s.count; e.ts -= s.score; } });
+    recs.forEach(s => { if (!map[s.employeeName]) map[s.employeeName] = { name: s.employeeName, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, ts: 0 }; const e = map[s.employeeName]; e.recs.push(s); if (s.category === "판매") { e.sales[s.promotion] = (e.sales[s.promotion] || 0) + num(s.count); e.ts += num(s.score); } else if (s.category === "취소") { e.cancels[s.promotion] = (e.cancels[s.promotion] || 0) + num(s.count); e.ts -= num(s.score); } });
     Object.values(map).forEach(e => { e.ts = Math.round(e.ts * 10) / 10; });
     return Object.values(map);
   }, [sd, my]);
