@@ -1,6 +1,6 @@
 import {
-  collection, doc, getDocs, addDoc, updateDoc, deleteDoc,
-  query, where, orderBy, onSnapshot, writeBatch, getDoc, setDoc,
+  collection, doc, getDocs, addDoc, updateDoc,
+  query, where, orderBy, onSnapshot, writeBatch, getDoc, setDoc, limit as firestoreLimit,
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -11,15 +11,57 @@ const storesCol = collection(db, "stores");
 const configCol = collection(db, "config");
 
 // ══════════════════════════════════════
-// Sales Records
+// Sales Records — query-based loading
 // ══════════════════════════════════════
-export function subscribeSales(callback) {
-  const q = query(salesCol, orderBy("reportDate", "desc"));
+
+/**
+ * Subscribe to sales with server-side filters.
+ * @param {Object} filters - { startDate?, endDate?, store?, storeField?, limitCount? }
+ * @param {Function} callback - receives array of sales docs
+ * @returns {Function} unsubscribe
+ */
+export function subscribeSalesQuery(filters, callback) {
+  const constraints = [where("isDeleted", "==", false)];
+
+  if (filters.store && filters.storeField) {
+    constraints.push(where(filters.storeField, "==", filters.store));
+  }
+  if (filters.startDate) {
+    constraints.push(where("reportDate", ">=", filters.startDate));
+  }
+  if (filters.endDate) {
+    constraints.push(where("reportDate", "<=", filters.endDate));
+  }
+
+  constraints.push(orderBy("reportDate", "desc"));
+
+  if (filters.limitCount) {
+    constraints.push(firestoreLimit(filters.limitCount));
+  }
+
+  const q = query(salesCol, ...constraints);
   return onSnapshot(q, (snap) => {
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    callback(data);
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   });
 }
+
+/**
+ * Check if sales exist for a given date + store (one-off query).
+ * @returns {Promise<boolean>}
+ */
+export async function checkDuplicate(date, store) {
+  const q = query(
+    salesCol,
+    where("isDeleted", "==", false),
+    where("reportStore", "==", store),
+    where("reportDate", "==", date),
+    firestoreLimit(1),
+  );
+  const snap = await getDocs(q);
+  return !snap.empty;
+}
+
+// ── Write operations ──
 
 export async function addSalesBatch(records) {
   const batch = writeBatch(db);
@@ -43,13 +85,12 @@ export async function softDeleteSalesByDate(date, store) {
 }
 
 // ══════════════════════════════════════
-// Employees
+// Employees — one-time load + manual refresh
 // ══════════════════════════════════════
-export function subscribeEmployees(callback) {
-  return onSnapshot(empCol, (snap) => {
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    callback(data);
-  });
+
+export async function loadEmployees() {
+  const snap = await getDocs(empCol);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
 }
 
 export async function updateEmployee(id, updates) {
@@ -61,19 +102,18 @@ export async function addEmployee(emp) {
 }
 
 // ══════════════════════════════════════
-// Stores (config per store + user mapping)
+// Stores — one-time load
 // ══════════════════════════════════════
-export function subscribeStores(callback) {
-  return onSnapshot(storesCol, (snap) => {
-    const data = {};
-    snap.docs.forEach(d => { data[d.id] = d.data(); });
-    callback(data);
-  });
+
+export async function loadStores() {
+  const snap = await getDocs(storesCol);
+  const data = {};
+  snap.docs.forEach(d => { data[d.id] = d.data(); });
+  return data;
 }
 
 export async function getUserStore(email) {
-  const q = query(storesCol);
-  const snap = await getDocs(q);
+  const snap = await getDocs(storesCol);
   for (const d of snap.docs) {
     const store = d.data();
     if (store.managers && store.managers.includes(email)) {
@@ -84,27 +124,25 @@ export async function getUserStore(email) {
 }
 
 // ══════════════════════════════════════
-// Config (multipliers, snapshots, requests)
+// Config — one-time load + save
 // ══════════════════════════════════════
-export function subscribeConfig(callback) {
-  const ref = doc(db, "config", "settings");
-  return onSnapshot(ref, (snap) => {
-    if (snap.exists()) callback(snap.data());
-  });
+
+export async function loadConfig() {
+  const snap = await getDoc(doc(db, "config", "settings"));
+  return snap.exists() ? snap.data() : {};
 }
 
 export async function saveConfig(data) {
   await setDoc(doc(db, "config", "settings"), data, { merge: true });
 }
 
-// ── Snapshots (weekly close) ──
+// ── Snapshots (weekly close) — real-time ──
 const snapsCol = collection(db, "config", "settings", "snapshots");
 
 export function subscribeSnapshots(callback) {
   const q = query(snapsCol, orderBy("closedAt", "desc"));
   return onSnapshot(q, (snap) => {
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    callback(data);
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   });
 }
 
@@ -112,14 +150,13 @@ export async function addSnapshot(snapData) {
   return await addDoc(snapsCol, snapData);
 }
 
-// ── Requests (approvals) ──
+// ── Requests (approvals) — real-time ──
 const reqsCol = collection(db, "config", "settings", "requests");
 
 export function subscribeRequests(callback) {
   const q = query(reqsCol, orderBy("createdAt", "desc"));
   return onSnapshot(q, (snap) => {
-    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    callback(data);
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
   });
 }
 

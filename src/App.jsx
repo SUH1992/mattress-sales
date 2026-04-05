@@ -2,13 +2,14 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { auth, googleProvider } from "./firebase";
 import {
-  subscribeSales, addSalesBatch, softDeleteSale, softDeleteSalesByDate,
-  subscribeEmployees, updateEmployee, addEmployee,
-  subscribeConfig, saveConfig,
+  addSalesBatch, softDeleteSale, softDeleteSalesByDate, checkDuplicate,
+  loadEmployees, updateEmployee, addEmployee,
+  loadConfig, saveConfig,
   subscribeSnapshots, addSnapshot,
   subscribeRequests, addRequest, updateRequest,
   getUserStore,
 } from "./firestore";
+import { useSalesQuery } from "./hooks";
 
 // ── SVG Icon Paths ──
 const ic = {
@@ -50,16 +51,6 @@ const getWeekLabel = (ds) => { const w = getWeekRange(ds); const ms = new Date(w
 const shiftWeek = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + dir * 7); return x.toISOString().split("T")[0]; };
 const shiftMonth = (m, dir) => { const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + dir, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftDay = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + dir); return x.toISOString().split("T")[0]; };
-
-const filterByPeriod = (sales, period, opts = {}) => {
-  const a = sales.filter(s => !s.isDeleted);
-  if (period === "total") return a;
-  if (period === "monthly") { const m = opts.month || today().slice(0, 7); return a.filter(s => s.reportDate.slice(0, 7) === m); }
-  if (period === "weekly") { const w = getWeekRange(opts.weekRef || today()); return a.filter(s => s.reportDate >= w.start && s.reportDate <= w.end); }
-  if (period === "daily") { const d = opts.date || today(); return a.filter(s => s.reportDate === d); }
-  if (period === "custom" && opts.start && opts.end) return a.filter(s => s.reportDate >= opts.start && s.reportDate <= opts.end);
-  return a;
-};
 
 const aggregate = (sales, includeCancel, groupBy, multipliers = DEFAULT_MULT) => {
   const map = {};
@@ -126,12 +117,14 @@ const Login = ({ onGoogleLogin, loading, error }) => {
 // ══════════════════════════════════════
 // 🏪 STORE: Dashboard
 // ══════════════════════════════════════
-const SDash = ({ myStore, sales, snapshots, employees }) => {
+const SDash = ({ myStore, snapshots, employees }) => {
+  const monthStart = today().slice(0, 7) + "-01";
+  const { data: salesData, loading } = useSalesQuery({ startDate: monthStart, endDate: today(), store: myStore, storeField: "homeStore" });
   const ls = snapshots[0]; const ps = snapshots[1];
   const cr = ls?.storeRanks?.[myStore] || "-"; const pr = ps?.storeRanks?.[myStore] || null; const rc = pr ? pr - cr : 0;
   const td = snapshots.slice().reverse().map(sn => ALL_STORES.length - (sn.storeRanks?.[myStore] || ALL_STORES.length) + 1);
   const me = employees.filter(e => e.homeStore === myStore && e.isActive);
-  const ms = sales.filter(s => !s.isDeleted && s.homeStore === myStore && s.reportDate.slice(0, 7) === today().slice(0, 7) && s.category === "판매");
+  const ms = salesData.filter(s => s.category === "판매");
   const msc = Math.round(ms.reduce((a, s) => a + s.score, 0) * 10) / 10;
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">{myStore} 대시보드</h1><p className="text-slate-500 text-sm mb-6">우리 매장 현황</p>
@@ -154,22 +147,24 @@ const SDash = ({ myStore, sales, snapshots, employees }) => {
 // ══════════════════════════════════════
 // 🏪 STORE: Sales Input (GAS matrix)
 // ══════════════════════════════════════
-const SInput = ({ myStore, employees, multipliers, sales, onSubmit, onDeleteByDate }) => {
+const SInput = ({ myStore, employees, multipliers, onSubmit, onDeleteByDate }) => {
   const me = employees.filter(e => e.isActive && e.homeStore === myStore);
   const [date, setDate] = useState(today()); const [done, setDone] = useState(false);
+  const [dup, setDup] = useState(false);
   const init = () => { const m = {}; me.forEach(e => { m[e.id] = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 } }; }); return m; };
   const [mx, setMx] = useState(() => init());
   useEffect(() => { setMx(init()); }, [myStore, employees]);
+  useEffect(() => { let cancelled = false; checkDuplicate(date, myStore).then(v => { if (!cancelled) setDup(v); }); return () => { cancelled = true; }; }, [date, myStore]);
   const upd = (eid, type, p, val) => { const v = Math.max(0, parseInt(val) || 0); setMx(prev => ({ ...prev, [eid]: { ...prev[eid], [type]: { ...prev[eid][type], [p]: v } } })); };
-  const dup = useMemo(() => sales.some(s => !s.isDeleted && s.reportStore === myStore && s.reportDate === date), [sales, myStore, date]);
   const tot = useMemo(() => { const t = { s: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, c: { "일시불": 0, "페이케어": 0, "렌탈": 0 }, ts: 0, tc: 0, sc: 0 }; Object.values(mx).forEach(m => { PROMOTIONS.forEach(p => { t.s[p] += m.s[p]; t.c[p] += m.c[p]; t.ts += m.s[p]; t.tc += m.c[p]; t.sc += (m.s[p] - m.c[p]) * (multipliers[p] || 1); }); }); t.sc = Math.round(t.sc * 10) / 10; return t; }, [mx, multipliers]);
   const hasD = tot.ts > 0 || tot.tc > 0;
   const isFuture = date > today();
-  const submit = () => {
-    if (dup) onDeleteByDate(date, myStore);
+  const submit = async () => {
+    if (dup) await onDeleteByDate(date, myStore);
     const batch = [];
     Object.entries(mx).forEach(([eid, m]) => { const emp = me.find(e => e.id === eid); if (!emp) return; PROMOTIONS.forEach(p => { for (let i = 0; i < (m.s[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "판매", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); for (let i = 0; i < (m.c[p] || 0); i++) batch.push({ reportDate: date, reportStore: myStore, homeStore: myStore, employeeName: emp.name, positionAtTime: emp.pos, promotion: p, count: 1, category: "취소", score: Math.round((multipliers[p] || 1) * 10) / 10, region: STORE_REGION[myStore] || "" }); }); });
-    onSubmit(batch);
+    await onSubmit(batch);
+    setDup(true);
     setDone(true); setTimeout(() => { setMx(init()); setDone(false); }, 1500);
   };
   const NC = ({ value, onChange, hl }) => <input type="number" min="0" value={value || ""} placeholder="0" onChange={e => onChange(e.target.value)} className={`w-full text-center border rounded-lg px-1 py-2 text-sm font-semibold tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400 ${value > 0 ? (hl === "s" ? "bg-blue-50 border-blue-200 text-blue-800" : "bg-rose-50 border-rose-200 text-rose-700") : "bg-white border-slate-200 text-slate-400"}`} />;
@@ -191,13 +186,16 @@ const SInput = ({ myStore, employees, multipliers, sales, onSubmit, onDeleteByDa
 // ══════════════════════════════════════
 // 🏪 STORE: Sales Calendar (미입력일 병합)
 // ══════════════════════════════════════
-const SCal = ({ myStore, sales, employees, onDelete }) => {
+const SCal = ({ myStore, employees, onDelete }) => {
   const [vm, setVm] = useState("monthly");
   const [cm, setCm] = useState(today().slice(0, 7));
   const [cw, setCw] = useState(today());
   const [sd, setSd] = useState(null);
   const [dm, setDm] = useState(null);
-  const my = useMemo(() => sales.filter(s => !s.isDeleted && s.homeStore === myStore), [sales, myStore]);
+  // Query: homeStore + selected month (expand to cover ±1 month for week view)
+  const qStart = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m - 2, 1); return d.toISOString().split("T")[0]; }, [cm]);
+  const qEnd = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m + 1, 0); return d.toISOString().split("T")[0]; }, [cm]);
+  const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore, storeField: "homeStore" });
 
   const ds = useMemo(() => {
     const map = {};
@@ -311,17 +309,25 @@ const SEmp = ({ myStore, employees, onRequest }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Ranking
 // ══════════════════════════════════════
-const HRank = ({ sales, snapshots, multipliers }) => {
+const HRank = ({ snapshots, multipliers }) => {
   const [period, setPeriod] = useState("total"); const [target, setTarget] = useState("emp"); const [ic2, setIc2] = useState(true); const [sc, setSc] = useState("score"); const [rf, setRf] = useState("");
   const [sm, setSm2] = useState(today().slice(0, 7)); const [sw, setSw] = useState(today()); const [sda, setSda] = useState(today()); const [cs, setCs] = useState(today()); const [ce, setCe] = useState(today());
-  const po = useMemo(() => { if (period === "monthly") return { month: sm }; if (period === "weekly") return { weekRef: sw }; if (period === "daily") return { date: sda }; if (period === "custom") return { start: cs, end: ce }; return {}; }, [period, sm, sw, sda, cs, ce]);
-  const fd = filterByPeriod(sales, period, po); let data = aggregate(fd, ic2, target, multipliers); if (rf) data = data.filter(d => d.region === rf);
+  // Compute server-side date range from period selection
+  const dateRange = useMemo(() => {
+    if (period === "monthly") { const [y, m] = sm.split("-").map(Number); return { startDate: `${y}-${String(m).padStart(2, "0")}-01`, endDate: `${y}-${String(m).padStart(2, "0")}-${new Date(y, m, 0).getDate()}` }; }
+    if (period === "weekly") { const w = getWeekRange(sw); return { startDate: w.start, endDate: w.end }; }
+    if (period === "daily") return { startDate: sda, endDate: sda };
+    if (period === "custom" && cs && ce) return { startDate: cs, endDate: ce };
+    return {}; // "total" → no date filter, loads all
+  }, [period, sm, sw, sda, cs, ce]);
+  const { data: salesData, loading } = useSalesQuery({ ...dateRange });
+  let data = aggregate(salesData, ic2, target, multipliers); if (rf) data = data.filter(d => d.region === rf);
   const sKey = ic2 ? "netScore" : "scoreTotal"; const cKey = ic2 ? "netCount" : "countTotal"; const sortKey = sc === "score" ? sKey : cKey;
   const sorted = [...data].sort((a, b) => b[sortKey] - a[sortKey]); const mx = sorted[0]?.[sortKey] || 1;
   const pt = useMemo(() => { if (period === "total") return "전체 누적"; if (period === "monthly") { const [y, m] = sm.split("-"); return `${y}년 ${+m}월`; } if (period === "weekly") return getWeekLabel(sw); if (period === "daily") return sda; if (period === "custom") return `${cs} ~ ${ce}`; return ""; }, [period, sm, sw, sda, cs, ce]);
   const ps2 = snapshots[1]; const ls2 = snapshots[0];
   const mi = useMemo(() => { if (!ps2 || !ls2) return []; return Object.entries(ls2.storeRanks).map(([st, rk]) => ({ name: st, change: (ps2.storeRanks[st] || rk) - rk, current: rk })).filter(d => d.change > 0).sort((a, b) => b.change - a.change).slice(0, 3); }, [ps2, ls2]);
-  const regions = [...new Set(sales.filter(s => !s.isDeleted).map(s => s.region).filter(Boolean))];
+  const regions = [...new Set(salesData.map(s => s.region).filter(Boolean))];
 
   return <div>
     <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">랭킹 조회</h1><p className="text-slate-500 text-sm">기간 × 대상별 순위</p></div><Toggle on={ic2} onToggle={() => setIc2(p => !p)} labelOn="취소 포함 (순)" labelOff="취소 미포함 (총)" /></div>
@@ -333,7 +339,7 @@ const HRank = ({ sales, snapshots, multipliers }) => {
       {period === "daily" && <><CB onClick={() => setSda(p => shiftDay(p, -1))} dir="l" /><Inp type="date" value={sda} onChange={setSda} className="w-44" /><CB onClick={() => setSda(p => shiftDay(p, 1))} dir="r" /><Btn v="ghost" size="sm" onClick={() => setSda(today())}>오늘</Btn></>}
       {period === "custom" && <><div><Label>시작</Label><Inp type="date" value={cs} onChange={setCs} className="w-44" /></div><span className="text-slate-400 font-bold pt-5">~</span><div><Label>종료</Label><Inp type="date" value={ce} onChange={setCe} className="w-44" /></div></>}
     </div></Card>}
-    <div className="flex items-center gap-2 mb-4"><div className="text-sm font-semibold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">{pt}</div><span className="text-xs text-slate-400">{fd.length}건</span></div>
+    <div className="flex items-center gap-2 mb-4"><div className="text-sm font-semibold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-lg">{pt}</div><span className="text-xs text-slate-400">{salesData.length}건</span></div>
     <Card className="p-4 mb-4"><div className="flex items-center justify-between flex-wrap gap-3"><Tabs tabs={[{ id: "emp", label: "👤 개인" }, { id: "store", label: "🏪 지점" }, { id: "region", label: "🗺️ 권역" }]} active={target} onChange={setTarget} /><div className="flex items-center gap-3">{target !== "region" && <Sel value={rf} onChange={setRf} options={regions} placeholder="전체 권역" className="w-36" />}<div className="flex gap-1 bg-slate-100 rounded-lg p-0.5"><button onClick={() => setSc("score")} className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer ${sc === "score" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>점수순</button><button onClick={() => setSc("count")} className={`px-3 py-1.5 rounded-md text-xs font-semibold cursor-pointer ${sc === "count" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>건수순</button></div></div></div></Card>
     <Card className="overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-100 bg-slate-50/50"><th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase w-12">#</th><th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{target === "emp" ? "직원" : target === "store" ? "지점" : "권역"}</th>{target === "emp" && <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">소속</th>}{target === "emp" && <th className="px-4 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">직급</th>}<th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase">일시불</th><th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase">페이케어</th><th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase">렌탈</th><th className="px-4 py-3 text-right text-[11px] font-semibold text-slate-500 uppercase">{sc === "score" ? "총점수" : "총건수"}</th><th className="px-4 py-3 w-32" /></tr></thead><tbody>
       {sorted.length === 0 ? <tr><td colSpan={9}><Empty icon={ic.trophy} title="데이터 없음" /></td></tr> : sorted.map((r, i) => { const sv = sc === "score"; return <tr key={r.name + r.store} className="border-b border-slate-50 hover:bg-blue-50/30"><td className="px-4 py-3"><div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${i === 0 ? "bg-amber-400 text-white" : i === 1 ? "bg-slate-400 text-white" : i === 2 ? "bg-amber-600 text-white" : "bg-slate-100 text-slate-500"}`}>{i + 1}</div></td><td className="px-4 py-3 font-bold">{r.name}</td>{target === "emp" && <td className="px-4 py-3"><Badge color="gray">{r.store}</Badge></td>}{target === "emp" && <td className="px-4 py-3 text-xs text-slate-500">{r.position}</td>}<td className="px-4 py-3 text-right tabular-nums">{sv ? (ic2 ? r.netScoreCash : r.sC) : (ic2 ? r.netCountCash : r.cC)}</td><td className="px-4 py-3 text-right tabular-nums">{sv ? (ic2 ? r.netScoreCare : r.sK) : (ic2 ? r.netCountCare : r.cK)}</td><td className="px-4 py-3 text-right tabular-nums">{sv ? (ic2 ? r.netScoreRental : r.sR) : (ic2 ? r.netCountRental : r.cR)}</td><td className="px-4 py-3 text-right font-extrabold text-emerald-600 tabular-nums">{r[sortKey]}</td><td className="px-4 py-3"><div className="h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full" style={{ width: `${(r[sortKey] / mx) * 100}%` }} /></div></td></tr>; })}
@@ -344,9 +350,10 @@ const HRank = ({ sales, snapshots, multipliers }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Weekly Close
 // ══════════════════════════════════════
-const HClose = ({ snapshots, onClose, sales, multipliers }) => {
+const HClose = ({ snapshots, onClose, multipliers }) => {
   const [cm, setCm] = useState(false); const wk = getWeekRange(today()); const wl = getWeekLabel(today());
-  const doClose = () => { const sr = {}; const ws = sales.filter(s => !s.isDeleted && s.reportDate >= wk.start && s.reportDate <= wk.end); const sa = aggregate(ws, true, "store", multipliers).sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); onClose({ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }); setCm(false); };
+  const { data: weekSales } = useSalesQuery({ startDate: wk.start, endDate: wk.end });
+  const doClose = () => { const sr = {}; const sa = aggregate(weekSales, true, "store", multipliers).sort((a, b) => b.netScore - a.netScore); sa.forEach((s, i) => { sr[s.name] = i + 1; }); onClose({ weekKey: wl, date: today(), storeRanks: sr, closedAt: new Date().toISOString(), closedBy: "admin" }); setCm(false); };
   return <div>
     <h1 className="text-2xl font-bold text-slate-900 mb-1">주간 마감</h1><p className="text-slate-500 text-sm mb-6">랭킹 스냅샷 확정</p>
     <Card className="p-6 mb-6"><div className="flex items-center justify-between"><div><p className="text-sm">{wl}</p><p className="text-xs text-slate-400">{wk.start} ~ {wk.end}</p></div><Btn onClick={() => setCm(true)}><Ic d={ic.lock} size={16} />마감</Btn></div></Card>
@@ -403,7 +410,6 @@ export default function App() {
   // ── App state ──
   const [page, setPage] = useState("s-dash"); const [sideOpen, setSideOpen] = useState(false); const [toast, setToast] = useState(null);
   const [mult, setMult] = useState({ ...DEFAULT_MULT });
-  const [sales, setSales] = useState([]);
   const [emps, setEmps] = useState([]);
   const [reqs, setReqs] = useState([]);
   const [snaps, setSnaps] = useState([]);
@@ -416,13 +422,11 @@ export default function App() {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        // Look up user's store assignment
         const storeInfo = await getUserStore(firebaseUser.email);
         if (storeInfo) {
           setUserProfile({ role: "store", store: storeInfo.storeId, name: firebaseUser.displayName || storeInfo.storeId, email: firebaseUser.email });
           setPage("s-dash");
         } else {
-          // Not in any store → HQ role
           setUserProfile({ role: "hq", store: null, name: firebaseUser.displayName || "본사", email: firebaseUser.email });
           setPage("h-rank");
         }
@@ -435,23 +439,31 @@ export default function App() {
     return unsub;
   }, []);
 
-  // ── Firestore subscriptions (only when logged in) ──
+  // ── Static data: one-time load (employees, config) + real-time (snapshots, requests) ──
+  const refreshEmps = useCallback(async () => { setEmps(await loadEmployees()); }, []);
+  const refreshConfig = useCallback(async () => { const c = await loadConfig(); if (c.multipliers) setMult(c.multipliers); }, []);
+
   useEffect(() => {
     if (!user) return;
+    let cancelled = false;
     const unsubs = [];
-    let ready = { sales: false, emps: false, config: false, snaps: false, reqs: false };
-    const checkReady = () => { if (Object.values(ready).every(Boolean)) setDataReady(true); };
 
-    unsubs.push(subscribeSales((data) => { setSales(data); ready.sales = true; checkReady(); }));
-    unsubs.push(subscribeEmployees((data) => { setEmps(data); ready.emps = true; checkReady(); }));
-    unsubs.push(subscribeConfig((data) => {
-      if (data.multipliers) setMult(data.multipliers);
-      ready.config = true; checkReady();
-    }));
-    unsubs.push(subscribeSnapshots((data) => { setSnaps(data); ready.snaps = true; checkReady(); }));
-    unsubs.push(subscribeRequests((data) => { setReqs(data); ready.reqs = true; checkReady(); }));
+    // One-time loads
+    Promise.all([loadEmployees(), loadConfig()]).then(([empData, configData]) => {
+      if (cancelled) return;
+      setEmps(empData);
+      if (configData.multipliers) setMult(configData.multipliers);
+    });
 
-    return () => unsubs.forEach(fn => fn());
+    // Real-time: snapshots + requests (small, frequently updated collections)
+    unsubs.push(subscribeSnapshots((data) => { if (!cancelled) setSnaps(data); }));
+    unsubs.push(subscribeRequests((data) => { if (!cancelled) setReqs(data); }));
+
+    // Mark ready after initial loads + first snapshot
+    const timer = setTimeout(() => { if (!cancelled) setDataReady(true); }, 100);
+    Promise.all([loadEmployees(), loadConfig()]).then(() => { if (!cancelled) setDataReady(true); });
+
+    return () => { cancelled = true; unsubs.forEach(fn => fn()); clearTimeout(timer); };
   }, [user]);
 
   // ── Auth handlers ──
@@ -488,6 +500,7 @@ export default function App() {
       const [name, pos] = req.detail.split(" / ");
       await addEmployee({ name, homeStore: req.store, pos: pos || "매니저" });
     }
+    await refreshEmps();
   };
   const handleReject = async (req) => { await updateRequest(req.id, { status: "rejected" }); };
 
@@ -495,7 +508,7 @@ export default function App() {
   const handleWeeklyClose = async (snapData) => { await addSnapshot(snapData); show("마감 완료"); };
 
   // HSet handler
-  const handleSaveMult = async (newMult) => { await saveConfig({ multipliers: newMult }); show("저장 완료"); };
+  const handleSaveMult = async (newMult) => { await saveConfig({ multipliers: newMult }); await refreshConfig(); show("저장 완료"); };
 
   // ── Loading / Login screens ──
   if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">로딩 중...</p></div></div>;
@@ -504,12 +517,12 @@ export default function App() {
 
   const rp = () => {
     switch (page) {
-      case "s-dash": return <SDash myStore={myStore} sales={sales} snapshots={snaps} employees={emps} />;
-      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} sales={sales} onSubmit={handleAddSales} onDeleteByDate={handleDelSaleByDate} />;
-      case "s-cal": return <SCal myStore={myStore} sales={sales} employees={emps} onDelete={handleDelSale} />;
+      case "s-dash": return <SDash myStore={myStore} snapshots={snaps} employees={emps} />;
+      case "s-input": return <SInput myStore={myStore} employees={emps} multipliers={mult} onSubmit={handleAddSales} onDeleteByDate={handleDelSaleByDate} />;
+      case "s-cal": return <SCal myStore={myStore} employees={emps} onDelete={handleDelSale} />;
       case "s-emp": return <SEmp myStore={myStore} employees={emps} onRequest={handleAddReq} />;
-      case "h-rank": return <HRank sales={sales} snapshots={snaps} multipliers={mult} />;
-      case "h-close": return <HClose snapshots={snaps} onClose={handleWeeklyClose} sales={sales} multipliers={mult} />;
+      case "h-rank": return <HRank snapshots={snaps} multipliers={mult} />;
+      case "h-close": return <HClose snapshots={snaps} onClose={handleWeeklyClose} multipliers={mult} />;
       case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} />;
       case "h-set": return <HSet multipliers={mult} onSave={handleSaveMult} />;
       default: return null;
