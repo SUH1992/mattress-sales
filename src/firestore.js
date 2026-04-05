@@ -131,7 +131,7 @@ export async function getUserStore(email) {
   const snap = await getDocs(storesCol);
   for (const d of snap.docs) {
     const store = d.data();
-    if (store.managers && store.managers.includes(email)) {
+    if (store.email === email || (store.managers && store.managers.includes(email))) {
       return { storeId: d.id, ...store };
     }
   }
