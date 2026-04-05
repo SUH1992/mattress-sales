@@ -4,10 +4,12 @@ import { auth, googleProvider } from "./firebase";
 import {
   addSalesBatch, softDeleteSale, softDeleteSalesByDate, checkDuplicate,
   loadEmployees, updateEmployee, addEmployee,
-  loadConfig, saveConfig,
+  loadConfig, saveConfig, loadStores,
   subscribeSnapshots, addSnapshot,
   subscribeRequests, addRequest, updateRequest,
-  getUserStore,
+  getUserStore, loadAdminEmails,
+  checkPendingApproval, submitApprovalRequest,
+  subscribeApprovalRequests, updateApprovalRequest, addStoreManager,
 } from "./firestore";
 import { useSalesQuery } from "./hooks";
 
@@ -109,6 +111,60 @@ const Login = ({ onGoogleLogin, loading, error }) => {
         <div className="mt-6 pt-4 border-t border-slate-100">
           <p className="text-[11px] text-slate-400 text-center">관리자에게 등록된 계정만 접속할 수 있습니다</p>
         </div>
+      </Card>
+    </div>
+  </div>;
+};
+
+// ══════════════════════════════════════
+// 📋 JOIN REQUEST FORM (가입 요청)
+// ══════════════════════════════════════
+const JoinRequestForm = ({ user, storeList, onSubmit, onLogout }) => {
+  const [store, setStore] = useState("");
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const handleSubmit = async () => {
+    if (!store) return;
+    setSubmitting(true);
+    await onSubmit({ type: "가입", requestorEmail: user.email, requestorName: user.displayName || "", requestedStore: store, reason });
+    setSubmitting(false);
+  };
+  return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
+    <div className="w-full max-w-md">
+      <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4 text-3xl">🛏️</div><h1 className="text-2xl font-extrabold text-white">접근 권한 요청</h1><p className="text-sm text-white/50 mt-1">{user.email}</p></div>
+      <Card className="p-6">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-500">등록되지 않은 계정입니다. 관리자에게 접근 권한을 요청하세요.</p>
+          <div><Label>소속 지점 선택</Label><Sel value={store} onChange={setStore} options={storeList} placeholder="지점을 선택하세요" /></div>
+          <div><Label>요청 사유</Label><Inp value={reason} onChange={setReason} placeholder="예: 신규 입사, 지점 이동 등" /></div>
+          <Btn onClick={handleSubmit} className="w-full" disabled={!store || submitting}>{submitting ? "요청 중..." : "가입 요청"}</Btn>
+        </div>
+        <div className="mt-4 pt-4 border-t border-slate-100"><button onClick={onLogout} className="w-full text-xs text-slate-400 hover:text-slate-600 cursor-pointer font-semibold">다른 계정으로 로그인</button></div>
+      </Card>
+    </div>
+  </div>;
+};
+
+// ══════════════════════════════════════
+// ⏳ PENDING APPROVAL (승인 대기)
+// ══════════════════════════════════════
+const PendingApproval = ({ user, pendingReq, onLogout }) => {
+  return <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-indigo-900 flex items-center justify-center p-4" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
+    <div className="w-full max-w-md">
+      <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 mb-4 text-3xl">⏳</div><h1 className="text-2xl font-extrabold text-white">승인 대기 중</h1><p className="text-sm text-white/50 mt-1">{user.email}</p></div>
+      <Card className="p-6">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-200">
+            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 shrink-0"><Ic d={ic.lock} size={18} /></div>
+            <div><p className="text-sm font-semibold text-amber-800">관리자 승인을 기다리고 있습니다</p><p className="text-xs text-amber-600 mt-0.5">승인이 완료되면 자동으로 접속됩니다</p></div>
+          </div>
+          {pendingReq && <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-400">요청 지점</span><span className="font-semibold">{pendingReq.requestedStore}</span></div>
+            {pendingReq.reason && <div className="flex justify-between"><span className="text-slate-400">요청 사유</span><span className="font-semibold">{pendingReq.reason}</span></div>}
+            <div className="flex justify-between"><span className="text-slate-400">요청 일시</span><span className="font-semibold text-xs">{new Date(pendingReq.createdAt).toLocaleString("ko-KR")}</span></div>
+          </div>}
+        </div>
+        <div className="mt-4 pt-4 border-t border-slate-100"><button onClick={onLogout} className="w-full text-xs text-slate-400 hover:text-slate-600 cursor-pointer font-semibold">다른 계정으로 로그인</button></div>
       </Card>
     </div>
   </div>;
@@ -366,16 +422,22 @@ const HClose = ({ snapshots, onClose, multipliers }) => {
 // ══════════════════════════════════════
 // 🏢 HQ: Approvals
 // ══════════════════════════════════════
-const HApprove = ({ requests, onApprove, onReject }) => {
+const HApprove = ({ requests, onApprove, onReject, approvalRequests, onApproveJoin, onRejectJoin }) => {
   const [tf, setTf] = useState("all"); const [sf, setSf] = useState("pending");
-  const fd = requests.filter(r => (tf === "all" || r.category === tf) && (sf === "all" || r.status === sf));
-  const pc = requests.filter(r => r.status === "pending").length;
-  const approve = (req) => onApprove(req);
-  const reject = (req) => onReject(req);
+  // Merge employee requests + approval requests into unified list
+  const allReqs = useMemo(() => {
+    const empReqs = requests.map(r => ({ ...r, _source: "emp" }));
+    const joinReqs = (approvalRequests || []).map(r => ({ ...r, _source: "join", category: "가입승인", type: "가입", employeeName: r.requestorName || r.requestorEmail, store: r.requestedStore, detail: `${r.requestorEmail} → ${r.requestedStore}`, reason: r.reason }));
+    return [...joinReqs, ...empReqs];
+  }, [requests, approvalRequests]);
+  const fd = allReqs.filter(r => (tf === "all" || r.category === tf) && (sf === "all" || r.status === sf));
+  const pc = allReqs.filter(r => r.status === "pending").length;
+  const handleApprove = (req) => { if (req._source === "join") onApproveJoin(req); else onApprove(req); };
+  const handleReject = (req) => { if (req._source === "join") onRejectJoin(req); else onReject(req); };
   return <div>
     <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">승인센터</h1><p className="text-slate-500 text-sm">가입 및 직원 변경 요청</p></div>{pc > 0 && <Badge color="red">{pc}건 대기</Badge>}</div>
     <Card className="p-4 mb-6"><div className="flex items-center gap-4 flex-wrap"><Tabs tabs={[{ id: "all", label: "전체", badge: pc }, { id: "가입승인", label: "가입" }, { id: "직원변경", label: "직원변경" }]} active={tf} onChange={setTf} /><div className="ml-auto"><Tabs tabs={[{ id: "pending", label: "대기" }, { id: "approved", label: "승인" }, { id: "rejected", label: "반려" }, { id: "all", label: "전체" }]} active={sf} onChange={setSf} /></div></div></Card>
-    {fd.length === 0 ? <Card><Empty icon={ic.inbox} title="요청 없음" /></Card> : <div className="space-y-3">{fd.map(req => <Card key={req.id} className="p-5"><div className="flex items-start justify-between"><div><div className="flex items-center gap-2 mb-1 flex-wrap"><Badge color={req.category === "가입승인" ? "cyan" : "blue"}>{req.category}</Badge><Badge color={req.type === "입사" ? "green" : req.type === "퇴사" ? "red" : "purple"}>{req.type || req.category}</Badge><span className="font-bold">{req.employeeName}</span>{req.store && <Badge color="gray">{req.store}</Badge>}</div><p className="text-sm text-slate-600">{req.detail}</p>{req.reason && <p className="text-xs text-slate-400 mt-1">사유: {req.reason}</p>}</div><div className="flex gap-2 shrink-0 ml-4">{req.status === "pending" ? <><Btn v="success" size="sm" onClick={() => approve(req)}>승인</Btn><Btn v="danger" size="sm" onClick={() => reject(req)}>반려</Btn></> : <Badge color={req.status === "approved" ? "green" : "red"}>{req.status === "approved" ? "승인" : "반려"}</Badge>}</div></div></Card>)}</div>}
+    {fd.length === 0 ? <Card><Empty icon={ic.inbox} title="요청 없음" /></Card> : <div className="space-y-3">{fd.map(req => <Card key={req.id} className="p-5"><div className="flex items-start justify-between"><div><div className="flex items-center gap-2 mb-1 flex-wrap"><Badge color={req.category === "가입승인" ? "cyan" : "blue"}>{req.category}</Badge><Badge color={req.type === "입사" ? "green" : req.type === "퇴사" ? "red" : req.type === "가입" ? "cyan" : "purple"}>{req.type || req.category}</Badge><span className="font-bold">{req.employeeName}</span>{req.store && <Badge color="gray">{req.store}</Badge>}</div><p className="text-sm text-slate-600">{req.detail}</p>{req.reason && <p className="text-xs text-slate-400 mt-1">사유: {req.reason}</p>}</div><div className="flex gap-2 shrink-0 ml-4">{req.status === "pending" ? <><Btn v="success" size="sm" onClick={() => handleApprove(req)}>승인</Btn><Btn v="danger" size="sm" onClick={() => handleReject(req)}>반려</Btn></> : <Badge color={req.status === "approved" ? "green" : "red"}>{req.status === "approved" ? "승인" : "반려"}</Badge>}</div></div></Card>)}</div>}
   </div>;
 };
 
@@ -413,28 +475,53 @@ export default function App() {
   const [emps, setEmps] = useState([]);
   const [reqs, setReqs] = useState([]);
   const [snaps, setSnaps] = useState([]);
+  const [approvalReqs, setApprovalReqs] = useState([]);
   const [dataReady, setDataReady] = useState(false);
+  const [storeList, setStoreList] = useState([]); // for join request form
+  const [pendingReq, setPendingReq] = useState(null); // pending approval for current user
 
   const show = useCallback((msg) => setToast({ message: msg }), []);
 
-  // ── Firebase Auth listener ──
+  // ── Firebase Auth listener (4-way routing) ──
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        const storeInfo = await getUserStore(firebaseUser.email);
-        if (storeInfo) {
-          setUserProfile({ role: "store", store: storeInfo.storeId, name: firebaseUser.displayName || storeInfo.storeId, email: firebaseUser.email });
-          setPage("s-dash");
-        } else {
-          setUserProfile({ role: "hq", store: null, name: firebaseUser.displayName || "본사", email: firebaseUser.email });
-          setPage("h-rank");
+        const email = firebaseUser.email;
+
+        // 1) Check admin
+        const adminEmails = await loadAdminEmails();
+        if (adminEmails.includes(email)) {
+          setUserProfile({ role: "hq", store: null, name: firebaseUser.displayName || "본사", email });
+          setPage("h-rank"); setAuthError(""); setAuthLoading(false);
+          return;
         }
-        setAuthError("");
+
+        // 2) Check store assignment
+        const storeInfo = await getUserStore(email);
+        if (storeInfo) {
+          setUserProfile({ role: "store", store: storeInfo.storeId, name: firebaseUser.displayName || storeInfo.storeId, email });
+          setPage("s-dash"); setAuthError(""); setAuthLoading(false);
+          return;
+        }
+
+        // 3) Check pending approval
+        const pending = await checkPendingApproval(email);
+        if (pending) {
+          setUserProfile({ role: "pending", store: null, name: firebaseUser.displayName || "", email });
+          setPendingReq(pending); setAuthError(""); setAuthLoading(false);
+          return;
+        }
+
+        // 4) New user — show join request form
+        const stores = await loadStores();
+        setStoreList(Object.keys(stores));
+        setUserProfile({ role: "new", store: null, name: firebaseUser.displayName || "", email });
+        setAuthError(""); setAuthLoading(false);
       } else {
-        setUser(null); setUserProfile(null); setDataReady(false);
+        setUser(null); setUserProfile(null); setPendingReq(null); setDataReady(false);
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
     return unsub;
   }, []);
@@ -444,7 +531,7 @@ export default function App() {
   const refreshConfig = useCallback(async () => { const c = await loadConfig(); if (c.multipliers) setMult(c.multipliers); }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userProfile || (userProfile.role !== "hq" && userProfile.role !== "store")) return;
     let cancelled = false;
     const unsubs = [];
 
@@ -453,18 +540,16 @@ export default function App() {
       if (cancelled) return;
       setEmps(empData);
       if (configData.multipliers) setMult(configData.multipliers);
+      setDataReady(true);
     });
 
-    // Real-time: snapshots + requests (small, frequently updated collections)
+    // Real-time: snapshots + requests + approval requests
     unsubs.push(subscribeSnapshots((data) => { if (!cancelled) setSnaps(data); }));
     unsubs.push(subscribeRequests((data) => { if (!cancelled) setReqs(data); }));
+    unsubs.push(subscribeApprovalRequests((data) => { if (!cancelled) setApprovalReqs(data); }));
 
-    // Mark ready after initial loads + first snapshot
-    const timer = setTimeout(() => { if (!cancelled) setDataReady(true); }, 100);
-    Promise.all([loadEmployees(), loadConfig()]).then(() => { if (!cancelled) setDataReady(true); });
-
-    return () => { cancelled = true; unsubs.forEach(fn => fn()); clearTimeout(timer); };
-  }, [user]);
+    return () => { cancelled = true; unsubs.forEach(fn => fn()); };
+  }, [user, userProfile]);
 
   // ── Auth handlers ──
   const handleGoogleLogin = async () => {
@@ -473,12 +558,17 @@ export default function App() {
     catch (e) { setAuthError(e.code === "auth/popup-closed-by-user" ? "로그인이 취소되었습니다." : "로그인에 실패했습니다. 다시 시도해 주세요."); setAuthLoading(false); }
   };
   const handleLogout = async () => { await signOut(auth); setPage("s-dash"); };
+  const handleJoinRequest = async (data) => {
+    await submitApprovalRequest(data);
+    setPendingReq(data);
+    setUserProfile(prev => ({ ...prev, role: "pending" }));
+  };
 
   // ── Derived state ──
   const role = userProfile?.role === "hq" ? "hq" : "store";
   const myStore = userProfile?.store || "";
   const nav = role === "store" ? SNAV : HNAV;
-  const pc = reqs.filter(r => r.status === "pending").length;
+  const pc = reqs.filter(r => r.status === "pending").length + approvalReqs.filter(r => r.status === "pending").length;
 
   // ── CRUD handlers (Firestore) ──
   const handleAddSales = async (batch) => { await addSalesBatch(batch); show("제출 완료"); };
@@ -486,7 +576,7 @@ export default function App() {
   const handleDelSaleByDate = async (date, store) => { await softDeleteSalesByDate(date, store); };
   const handleAddReq = async (r) => { await addRequest(r); show("요청 접수"); };
 
-  // HApprove handlers
+  // HApprove handlers (직원변경 요청)
   const handleApprove = async (req) => {
     await updateRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
     if (req.type === "퇴사") {
@@ -504,16 +594,28 @@ export default function App() {
   };
   const handleReject = async (req) => { await updateRequest(req.id, { status: "rejected" }); };
 
+  // 가입 요청 승인/반려
+  const handleApproveJoin = async (req) => {
+    await updateApprovalRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
+    await addStoreManager(req.requestedStore, req.requestorEmail);
+  };
+  const handleRejectJoin = async (req) => {
+    await updateApprovalRequest(req.id, { status: "rejected", processedAt: new Date().toISOString() });
+  };
+
   // HClose handler
   const handleWeeklyClose = async (snapData) => { await addSnapshot(snapData); show("마감 완료"); };
 
   // HSet handler
   const handleSaveMult = async (newMult) => { await saveConfig({ multipliers: newMult }); await refreshConfig(); show("저장 완료"); };
 
-  // ── Loading / Login screens ──
-  if (authLoading) return <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">로딩 중...</p></div></div>;
+  // ── Loading / Login / Pending / Join screens ──
+  const Spinner = ({ text }) => <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">{text}</p></div></div>;
+  if (authLoading) return <Spinner text="로딩 중..." />;
   if (!user) return <Login onGoogleLogin={handleGoogleLogin} loading={authLoading} error={authError} />;
-  if (!dataReady) return <div className="min-h-screen flex items-center justify-center bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}><div className="text-center"><div className="w-12 h-12 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin mx-auto mb-4" /><p className="text-sm text-slate-500">데이터 불러오는 중...</p></div></div>;
+  if (userProfile?.role === "pending") return <PendingApproval user={user} pendingReq={pendingReq} onLogout={handleLogout} />;
+  if (userProfile?.role === "new") return <JoinRequestForm user={user} storeList={storeList} onSubmit={handleJoinRequest} onLogout={handleLogout} />;
+  if (!dataReady) return <Spinner text="데이터 불러오는 중..." />;
 
   const rp = () => {
     switch (page) {
@@ -523,7 +625,7 @@ export default function App() {
       case "s-emp": return <SEmp myStore={myStore} employees={emps} onRequest={handleAddReq} />;
       case "h-rank": return <HRank snapshots={snaps} multipliers={mult} />;
       case "h-close": return <HClose snapshots={snaps} onClose={handleWeeklyClose} multipliers={mult} />;
-      case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} />;
+      case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} approvalRequests={approvalReqs} onApproveJoin={handleApproveJoin} onRejectJoin={handleRejectJoin} />;
       case "h-set": return <HSet multipliers={mult} onSave={handleSaveMult} />;
       default: return null;
     }

@@ -124,6 +124,53 @@ export async function getUserStore(email) {
 }
 
 // ══════════════════════════════════════
+// Admin emails — check HQ role
+// ══════════════════════════════════════
+
+export async function loadAdminEmails() {
+  const snap = await getDoc(doc(db, "config", "admin"));
+  if (snap.exists() && snap.data().adminEmails) return snap.data().adminEmails;
+  return [];
+}
+
+// ══════════════════════════════════════
+// Approval Requests (가입 요청)
+// ══════════════════════════════════════
+const approvalCol = collection(db, "approvalRequests");
+
+export async function checkPendingApproval(email) {
+  const q = query(approvalCol, where("requestorEmail", "==", email), where("status", "==", "pending"), firestoreLimit(1));
+  const snap = await getDocs(q);
+  return !snap.empty ? { id: snap.docs[0].id, ...snap.docs[0].data() } : null;
+}
+
+export async function submitApprovalRequest(data) {
+  return await addDoc(approvalCol, { ...data, status: "pending", createdAt: new Date().toISOString() });
+}
+
+export function subscribeApprovalRequests(callback) {
+  const q = query(approvalCol, orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snap) => {
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  });
+}
+
+export async function updateApprovalRequest(id, updates) {
+  await updateDoc(doc(db, "approvalRequests", id), updates);
+}
+
+export async function addStoreManager(storeId, email) {
+  const ref = doc(db, "stores", storeId);
+  const snap = await getDoc(ref);
+  if (snap.exists()) {
+    const current = snap.data().managers || [];
+    if (!current.includes(email)) {
+      await updateDoc(ref, { managers: [...current, email] });
+    }
+  }
+}
+
+// ══════════════════════════════════════
 // Config — one-time load + save
 // ══════════════════════════════════════
 
