@@ -5,6 +5,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "isDeleted", "order": "ASCENDING" },
+        { "fieldPath": "reportDate", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "salesRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isDeleted", "order": "ASCENDING" },
         { "fieldPath": "homeStore", "order": "ASCENDING" },
         { "fieldPath": "reportDate", "order": "DESCENDING" }
       ]
@@ -19,11 +27,11 @@
       ]
     },
     {
-      "collectionGroup": "salesRecords",
+      "collectionGroup": "approvalRequests",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "isDeleted", "order": "ASCENDING" },
-        { "fieldPath": "reportDate", "order": "DESCENDING" }
+        { "fieldPath": "requestorEmail", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
       ]
     }
   ],
