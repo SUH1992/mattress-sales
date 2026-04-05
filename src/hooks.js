@@ -8,13 +8,12 @@ import { subscribeSalesQuery } from "./firestore";
  * @param {Object} params
  * @param {string} [params.startDate] - YYYY-MM-DD
  * @param {string} [params.endDate] - YYYY-MM-DD
- * @param {string} [params.store] - store name filter
- * @param {string} [params.storeField] - "homeStore" or "reportStore"
+ * @param {string} [params.store] - reportStore filter
  * @param {number} [params.limitCount] - max docs to fetch
  * @param {boolean} [params.enabled=true] - skip subscription when false
  * @returns {{ data: Array, loading: boolean }}
  */
-export function useSalesQuery({ startDate, endDate, store, storeField, limitCount, enabled = true } = {}) {
+export function useSalesQuery({ startDate, endDate, store, limitCount, enabled = true } = {}) {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const firstLoad = useRef(true);
@@ -28,7 +27,7 @@ export function useSalesQuery({ startDate, endDate, store, storeField, limitCoun
     const filters = {};
     if (startDate) filters.startDate = startDate;
     if (endDate) filters.endDate = endDate;
-    if (store && storeField) { filters.store = store; filters.storeField = storeField; }
+    if (store) filters.store = store;
     if (limitCount) filters.limitCount = limitCount;
 
     const unsub = subscribeSalesQuery(filters, (results) => {
@@ -37,7 +36,7 @@ export function useSalesQuery({ startDate, endDate, store, storeField, limitCoun
     });
 
     return unsub;
-  }, [startDate, endDate, store, storeField, limitCount, enabled]);
+  }, [startDate, endDate, store, limitCount, enabled]);
 
   return { data, loading };
 }

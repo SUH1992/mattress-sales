@@ -184,7 +184,7 @@ const PendingApproval = ({ user, pendingReq, onLogout }) => {
 // ══════════════════════════════════════
 const SDash = ({ myStore, snapshots, employees }) => {
   const monthStart = today().slice(0, 7) + "-01";
-  const { data: salesData, loading } = useSalesQuery({ startDate: monthStart, endDate: today(), store: myStore, storeField: "homeStore" });
+  const { data: salesData, loading } = useSalesQuery({ startDate: monthStart, endDate: today(), store: myStore });
   const ls = snapshots[0]; const ps = snapshots[1];
   const cr = ls?.storeRanks?.[myStore] || "-"; const pr = ps?.storeRanks?.[myStore] || null; const rc = pr ? pr - cr : 0;
   const td = snapshots.slice().reverse().map(sn => ALL_STORES.length - (sn.storeRanks?.[myStore] || ALL_STORES.length) + 1);
@@ -304,7 +304,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
   // Query: reportStore (보고지점 = 로그인한 지점)
   const qStart = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m - 2, 1); return d.toISOString().split("T")[0]; }, [cm]);
   const qEnd = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m + 1, 0); return d.toISOString().split("T")[0]; }, [cm]);
-  const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore, storeField: "reportStore" });
+  const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore });
 
   // Per-date summary + per-date-per-employee promo aggregation
   const ds = useMemo(() => {
@@ -451,7 +451,7 @@ const HRank = ({ snapshots, multipliers }) => {
     if (period === "weekly") { const w = getWeekRange(sw); return { startDate: w.start, endDate: w.end }; }
     if (period === "daily") return { startDate: sda, endDate: sda };
     if (period === "custom" && cs && ce) return { startDate: cs, endDate: ce };
-    return {}; // "total" → no date filter, loads all
+    return { startDate: "2000-01-01", endDate: "2099-12-31" }; // "total" → full range
   }, [period, sm, sw, sda, cs, ce]);
   const { data: salesData, loading } = useSalesQuery({ ...dateRange });
   let data = aggregate(salesData, ic2, target, multipliers); if (rf) data = data.filter(d => d.region === rf);

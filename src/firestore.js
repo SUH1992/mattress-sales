@@ -16,23 +16,23 @@ const configCol = collection(db, "config");
 
 /**
  * Subscribe to sales with server-side filters.
- * @param {Object} filters - { startDate?, endDate?, store?, storeField?, limitCount? }
+ * Only 2 query patterns (matching 2 composite indexes):
+ *   Pattern A: isDeleted + reportDate range + orderBy(reportDate desc)
+ *   Pattern B: isDeleted + reportStore + reportDate range + orderBy(reportDate desc)
+ *
+ * @param {Object} filters - { startDate, endDate, store?, limitCount? }
  * @param {Function} callback - receives array of sales docs
  * @returns {Function} unsubscribe
  */
 export function subscribeSalesQuery(filters, callback) {
   const constraints = [where("isDeleted", "==", false)];
 
-  if (filters.store && filters.storeField) {
-    constraints.push(where(filters.storeField, "==", filters.store));
-  }
-  if (filters.startDate) {
-    constraints.push(where("reportDate", ">=", filters.startDate));
-  }
-  if (filters.endDate) {
-    constraints.push(where("reportDate", "<=", filters.endDate));
+  if (filters.store) {
+    constraints.push(where("reportStore", "==", filters.store));
   }
 
+  constraints.push(where("reportDate", ">=", filters.startDate || "2000-01-01"));
+  constraints.push(where("reportDate", "<=", filters.endDate || "2099-12-31"));
   constraints.push(orderBy("reportDate", "desc"));
 
   if (filters.limitCount) {
