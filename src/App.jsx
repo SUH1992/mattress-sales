@@ -292,20 +292,38 @@ const SInput = ({ myStore, employees, multipliers, onSubmit, onDeleteByDate }) =
 // ══════════════════════════════════════
 // 🏪 STORE: Sales Calendar (미입력일 병합)
 // ══════════════════════════════════════
+const promoGroup = (p) => { if (p === "일시불") return "일시불"; if (p === "렌탈") return "렌탈"; return "페이케어"; };
+const PROMO_GROUPS = ["일시불", "페이케어", "렌탈"];
+
 const SCal = ({ myStore, employees, onDelete }) => {
   const [vm, setVm] = useState("monthly");
   const [cm, setCm] = useState(today().slice(0, 7));
   const [cw, setCw] = useState(today());
   const [sd, setSd] = useState(null);
   const [dm, setDm] = useState(null);
-  // Query: homeStore + selected month (expand to cover ±1 month for week view)
+  // Query: reportStore (보고지점 = 로그인한 지점)
   const qStart = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m - 2, 1); return d.toISOString().split("T")[0]; }, [cm]);
   const qEnd = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m + 1, 0); return d.toISOString().split("T")[0]; }, [cm]);
-  const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore, storeField: "homeStore" });
+  const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore, storeField: "reportStore" });
 
+  // Per-date summary + per-date-per-employee promo aggregation
   const ds = useMemo(() => {
     const map = {};
-    my.forEach(s => { if (!map[s.reportDate]) map[s.reportDate] = { sc: 0, cc: 0, score: 0, recs: [] }; const d = map[s.reportDate]; d.recs.push(s); if (s.category === "판매") { d.sc += num(s.count); d.score += num(s.score); } else if (s.category === "취소") { d.cc += num(s.count); d.score -= num(s.score); } });
+    my.forEach(s => {
+      const dt = s.reportDate;
+      if (!map[dt]) map[dt] = { sc: 0, cc: 0, score: 0, recs: [], emps: {} };
+      const d = map[dt]; d.recs.push(s);
+      if (s.category === "판매") { d.sc += num(s.count); d.score += num(s.score); }
+      else if (s.category === "취소") { d.cc += num(s.count); d.score -= num(s.score); }
+      // Per-employee aggregation
+      const en = s.employeeName || "?";
+      if (!d.emps[en]) d.emps[en] = { name: en, cash: [0, 0], care: [0, 0], rental: [0, 0] }; // [sale, cancel]
+      const e = d.emps[en]; const g = promoGroup(s.promotion); const cnt = num(s.count);
+      const isSale = s.category === "판매";
+      if (g === "일시불") { e.cash[isSale ? 0 : 1] += cnt; }
+      else if (g === "페이케어") { e.care[isSale ? 0 : 1] += cnt; }
+      else { e.rental[isSale ? 0 : 1] += cnt; }
+    });
     Object.values(map).forEach(d => { d.score = Math.round(d.score * 10) / 10; });
     return map;
   }, [my]);
@@ -328,7 +346,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
     if (!sd) return [];
     const recs = my.filter(s => s.reportDate === sd);
     const map = {};
-    recs.forEach(s => { if (!map[s.employeeName]) map[s.employeeName] = { name: s.employeeName, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, ts: 0 }; const e = map[s.employeeName]; e.recs.push(s); if (s.category === "판매") { e.sales[s.promotion] = (e.sales[s.promotion] || 0) + num(s.count); e.ts += num(s.score); } else if (s.category === "취소") { e.cancels[s.promotion] = (e.cancels[s.promotion] || 0) + num(s.count); e.ts -= num(s.score); } });
+    recs.forEach(s => { if (!map[s.employeeName]) map[s.employeeName] = { name: s.employeeName, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, ts: 0 }; const e = map[s.employeeName]; e.recs.push(s); const g = promoGroup(s.promotion); if (s.category === "판매") { e.sales[g] = (e.sales[g] || 0) + num(s.count); e.ts += num(s.score); } else if (s.category === "취소") { e.cancels[g] = (e.cancels[g] || 0) + num(s.count); e.ts -= num(s.score); } });
     Object.values(map).forEach(e => { e.ts = Math.round(e.ts * 10) / 10; });
     return Object.values(map);
   }, [sd, my]);
@@ -350,13 +368,22 @@ const SCal = ({ myStore, employees, onDelete }) => {
 
     {/* MONTHLY */}
     {vm === "monthly" && <Card className="overflow-hidden mb-4">
-      <div className="grid grid-cols-7 border-b border-slate-200">{["월", "화", "수", "목", "금", "토", "일"].map(d => <div key={d} className={`px-2 py-2 text-center text-[11px] font-bold ${d === "토" || d === "일" ? "text-slate-400 bg-slate-50" : "text-slate-600 bg-slate-100"}`}>{d}</div>)}</div>
+      <div className="grid grid-cols-7 border-b border-slate-200">
+        {["월", "화", "수", "목", "금", "토", "일"].map(d => <div key={d} className={`px-1 py-1.5 text-center text-[10px] font-bold ${d === "토" || d === "일" ? "text-slate-400 bg-slate-50" : "text-slate-600 bg-slate-100"}`}>{d}</div>)}
+        <div className="col-span-7 grid grid-cols-7 border-t border-slate-100">{["", "", "", "일시불", "페케", "렌탈", ""].map((h, i) => i >= 3 && i <= 5 ? <div key={i} className="px-0.5 py-0.5 text-center text-[8px] font-semibold text-slate-400 bg-slate-50/50">{h}</div> : <div key={i} />)}</div>
+      </div>
       <div className="grid grid-cols-7">{calDays.map((item, i) => {
-        if (!item) return <div key={i} className="h-24 bg-slate-50/30 border-b border-r border-slate-50" />;
+        if (!item) return <div key={i} className="min-h-[5rem] bg-slate-50/30 border-b border-r border-slate-50" />;
         const { date, day, isWE, isToday, isFut, st } = item; const miss = !isFut && !isWE && !st;
-        return <div key={i} onClick={() => setSd(date)} className={`h-24 p-1.5 border-b border-r border-slate-100 cursor-pointer transition-all hover:bg-blue-50/50 ${isToday ? "ring-2 ring-inset ring-blue-400" : ""} ${sd === date ? "bg-blue-50" : ""} ${miss ? "bg-rose-50/60" : ""} ${isFut ? "opacity-40" : ""} ${isWE && !miss ? "bg-slate-50/50" : ""}`}>
-          <div className={`text-xs font-bold mb-1 ${isToday ? "text-blue-600" : miss ? "text-rose-500" : isWE ? "text-slate-400" : "text-slate-600"}`}>{day}</div>
-          {st ? <div><div className="text-[11px] font-bold text-emerald-600 tabular-nums">{st.score}점</div><div className="flex gap-1 mt-0.5"><span className="text-[10px] text-blue-600 bg-blue-50 rounded px-1">{st.sc}건</span>{st.cc > 0 && <span className="text-[10px] text-rose-500 bg-rose-50 rounded px-1">-{st.cc}</span>}</div></div> : (!isFut && !isWE && <div className="text-[10px] text-rose-400 font-semibold mt-1">미입력</div>)}
+        const empList = st ? Object.values(st.emps) : [];
+        return <div key={i} onClick={() => setSd(date)} className={`min-h-[5rem] border-b border-r border-slate-100 cursor-pointer transition-all hover:bg-blue-50/30 ${isToday ? "ring-2 ring-inset ring-blue-400" : ""} ${sd === date ? "bg-blue-50" : ""} ${miss ? "bg-slate-100/60" : ""} ${isFut ? "opacity-40" : ""} ${isWE && !miss ? "bg-slate-50/50" : ""}`}>
+          <div className={`px-1 pt-0.5 text-[10px] font-bold ${isToday ? "text-blue-600" : miss ? "text-slate-400" : isWE ? "text-slate-400" : "text-slate-600"}`}>{day}</div>
+          {st ? <div className="px-0.5 pb-0.5 max-h-[6rem] overflow-y-auto">
+            {empList.map(e => { const PC = ({ v }) => { const s = v[0], c = v[1]; return <span className="tabular-nums">{s > 0 ? <span className="text-blue-600">{s}</span> : <span className="text-slate-300">0</span>}/{c > 0 ? <span className="text-rose-500">{c}</span> : <span className="text-slate-300">0</span>}</span>; }; return <div key={e.name} className="flex items-center gap-0.5 py-px">
+              <span className="text-[9px] font-bold text-slate-700 w-[3.2em] truncate shrink-0">{e.name.length > 3 ? e.name.slice(0, 3) : e.name}</span>
+              <span className="text-[9px] flex-1 flex justify-around"><PC v={e.cash} /><PC v={e.care} /><PC v={e.rental} /></span>
+            </div>; })}
+          </div> : (!isFut && !isWE && <div className="px-1 mt-1"><span className="text-[9px] text-slate-400 font-semibold">미입력</span></div>)}
         </div>;
       })}</div>
       <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center gap-6 text-sm flex-wrap">
@@ -389,7 +416,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
       {dayDetail.length === 0 ? <Card className="p-8"><Empty icon={ic.list} title="기록 없음" /></Card> :
         <div className="space-y-3">{dayDetail.map(emp => <Card key={emp.name} className="overflow-hidden">
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-bold">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><span className={`font-bold tabular-nums ${emp.ts >= 0 ? "text-emerald-600" : "text-rose-500"}`}>{emp.ts}점</span></div>
-          <div className="p-4"><div className="grid grid-cols-3 gap-3 mb-3">{PROMOTIONS.map(p => { const sc = emp.sales[p] || 0; const cc = emp.cancels[p] || 0; return <div key={p} className="text-center p-2 rounded-lg bg-slate-50"><div className="text-[11px] text-slate-500 font-semibold mb-1">{p}</div><div className="text-sm font-bold text-blue-700">{sc}건{cc > 0 && <span className="text-rose-500 ml-1">(-{cc})</span>}</div></div>; })}</div>
+          <div className="p-4"><div className="grid grid-cols-3 gap-3 mb-3">{PROMO_GROUPS.map(p => { const sc = emp.sales[p] || 0; const cc = emp.cancels[p] || 0; return <div key={p} className="text-center p-2 rounded-lg bg-slate-50"><div className="text-[11px] text-slate-500 font-semibold mb-1">{p}</div><div className="text-sm font-bold tabular-nums"><span className={sc > 0 ? "text-blue-700" : "text-slate-300"}>{sc}</span><span className="text-slate-300">/</span><span className={cc > 0 ? "text-rose-500" : "text-slate-300"}>{cc}</span></div></div>; })}</div>
             <div className="space-y-1">{emp.recs.map(r => <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50 group"><div className="flex items-center gap-2"><Badge color={r.category === "판매" ? "green" : "red"}>{r.category}</Badge><Badge color={r.promotion === "일시불" ? "blue" : r.promotion === "렌탈" ? "orange" : "purple"}>{r.promotion}</Badge><span className="text-xs text-slate-500">{r.count}건</span></div><button onClick={() => setDm(r)} className="p-1 rounded hover:bg-rose-100 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Ic d={ic.trash} size={14} /></button></div>)}</div>
           </div>
         </Card>)}</div>}
