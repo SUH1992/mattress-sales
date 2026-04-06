@@ -318,26 +318,27 @@ const SCal = ({ myStore, employees, onDelete }) => {
     }
   }, [my]);
 
-  // Per-date summary + per-date-per-employee promo aggregation
+  // Per-date summary + per-date-per-employee promo aggregation (counts only, no scores)
   const ds = useMemo(() => {
     const map = {};
     my.forEach(s => {
       const dt = normDate(s.reportDate);
       if (!dt) return;
-      if (!map[dt]) map[dt] = { sc: 0, cc: 0, score: 0, recs: [], emps: {} };
+      if (!map[dt]) map[dt] = { sc: 0, cc: 0, recs: [], emps: {} };
       const d = map[dt]; d.recs.push(s);
-      if (s.category === "판매") { d.sc += num(s.count); d.score += num(s.score); }
-      else if (s.category === "취소") { d.cc += num(s.count); d.score -= num(s.score); }
+      const cnt = num(s.count) || 1; // count가 없거나 0이면 1건으로 처리
+      if (s.category === "판매") { d.sc += cnt; }
+      else if (s.category === "취소") { d.cc += cnt; }
       // Per-employee aggregation
       const en = s.employeeName || "?";
       if (!d.emps[en]) d.emps[en] = { name: en, cash: [0, 0], care: [0, 0], rental: [0, 0] };
-      const e = d.emps[en]; const g = promoGroup(s.promotion); const cnt = num(s.count);
+      const e = d.emps[en]; const g = promoGroup(s.promotion);
       const isSale = s.category === "판매";
       if (g === "일시불") { e.cash[isSale ? 0 : 1] += cnt; }
       else if (g === "페이케어") { e.care[isSale ? 0 : 1] += cnt; }
       else { e.rental[isSale ? 0 : 1] += cnt; }
     });
-    Object.values(map).forEach(d => { d.score = Math.round(d.score * 10) / 10; });
+    console.log("[SCal] ds 집계 완료:", Object.keys(map).length, "일,", "샘플:", Object.entries(map).slice(0, 2).map(([dt, d]) => ({ dt, sc: d.sc, cc: d.cc, emps: Object.keys(d.emps) })));
     return map;
   }, [my]);
 
@@ -359,8 +360,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
     if (!sd) return [];
     const recs = my.filter(s => normDate(s.reportDate) === sd);
     const map = {};
-    recs.forEach(s => { if (!map[s.employeeName]) map[s.employeeName] = { name: s.employeeName, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, ts: 0 }; const e = map[s.employeeName]; e.recs.push(s); const g = promoGroup(s.promotion); if (s.category === "판매") { e.sales[g] = (e.sales[g] || 0) + num(s.count); e.ts += num(s.score); } else if (s.category === "취소") { e.cancels[g] = (e.cancels[g] || 0) + num(s.count); e.ts -= num(s.score); } });
-    Object.values(map).forEach(e => { e.ts = Math.round(e.ts * 10) / 10; });
+    recs.forEach(s => { const en = s.employeeName || "?"; if (!map[en]) map[en] = { name: en, pos: s.positionAtTime, recs: [], sales: {}, cancels: {}, totalSale: 0, totalCancel: 0 }; const e = map[en]; e.recs.push(s); const g = promoGroup(s.promotion); const cnt = num(s.count) || 1; if (s.category === "판매") { e.sales[g] = (e.sales[g] || 0) + cnt; e.totalSale += cnt; } else if (s.category === "취소") { e.cancels[g] = (e.cancels[g] || 0) + cnt; e.totalCancel += cnt; } });
     return Object.values(map);
   }, [sd, my]);
 
@@ -402,7 +402,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
       <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center gap-6 text-sm flex-wrap">
         <span className="text-slate-500">입력: <strong>{Object.keys(ds).filter(d => d.startsWith(cm)).length}일</strong></span>
         <span className="text-slate-500">판매: <strong className="text-blue-700">{Object.entries(ds).filter(([d]) => d.startsWith(cm)).reduce((a, [, v]) => a + v.sc, 0)}건</strong></span>
-        <span className="text-slate-500">점수: <strong className="text-emerald-700">{Math.round(Object.entries(ds).filter(([d]) => d.startsWith(cm)).reduce((a, [, v]) => a + v.score, 0) * 10) / 10}</strong></span>
+        <span className="text-slate-500">취소: <strong className="text-rose-500">{Object.entries(ds).filter(([d]) => d.startsWith(cm)).reduce((a, [, v]) => a + v.cc, 0)}건</strong></span>
         {mmiss > 0 && <span className="text-rose-500 font-semibold">미입력: {mmiss}일</span>}
       </div>
     </Card>}
@@ -412,7 +412,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
       const miss = day.date <= today() && !day.st;
       return <Card key={day.date} onClick={() => setSd(day.date)} className={`p-4 ${day.isToday ? "ring-2 ring-blue-400" : ""} ${sd === day.date ? "bg-blue-50 border-blue-200" : ""} ${miss ? "bg-rose-50 border-rose-200" : ""}`}>
         <div className="flex items-center justify-between mb-2"><span className={`text-xs font-bold ${day.isToday ? "text-blue-600" : miss ? "text-rose-500" : "text-slate-500"}`}>{day.dn}</span><span className="text-lg font-extrabold">{day.day}</span></div>
-        {day.st ? <div><div className="text-lg font-extrabold text-emerald-600 tabular-nums">{day.st.score}<span className="text-xs font-normal text-slate-400">점</span></div><span className="text-[11px] font-semibold text-blue-600">{day.st.sc}건</span>{day.st.cc > 0 && <span className="text-[11px] font-semibold text-rose-500 ml-1">-{day.st.cc}</span>}</div>
+        {day.st ? <div><div className="text-lg font-extrabold text-blue-700 tabular-nums">{day.st.sc}<span className="text-xs font-normal text-slate-400">건</span></div>{day.st.cc > 0 && <span className="text-[11px] font-semibold text-rose-500">취소 {day.st.cc}</span>}</div>
           : <div className={`text-xs mt-2 font-semibold ${miss ? "text-rose-400" : "text-slate-300"}`}>미입력</div>}
       </Card>;
     })}</div>}
@@ -423,12 +423,12 @@ const SCal = ({ myStore, employees, onDelete }) => {
     {/* DAY DETAIL */}
     {sd && <div className="mt-4">
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3"><h2 className="text-lg font-bold">{sd}</h2>{ds[sd] ? <Badge color="green">제출됨</Badge> : <Badge color="red">미입력</Badge>}{ds[sd] && <span className="text-sm text-slate-500">{ds[sd].sc}건 · {ds[sd].score}점</span>}</div>
+        <div className="flex items-center gap-3"><h2 className="text-lg font-bold">{sd}</h2>{ds[sd] ? <Badge color="green">제출됨</Badge> : <Badge color="red">미입력</Badge>}{ds[sd] && <span className="text-sm text-slate-500">판매 {ds[sd].sc}건{ds[sd].cc > 0 && <span className="text-rose-500 ml-1">· 취소 {ds[sd].cc}건</span>}</span>}</div>
         {vm !== "daily" && <button onClick={() => setSd(null)} className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer">닫기 ✕</button>}
       </div>
       {dayDetail.length === 0 ? <Card className="p-8"><Empty icon={ic.list} title="기록 없음" /></Card> :
         <div className="space-y-3">{dayDetail.map(emp => <Card key={emp.name} className="overflow-hidden">
-          <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-bold">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><span className={`font-bold tabular-nums ${emp.ts >= 0 ? "text-emerald-600" : "text-rose-500"}`}>{emp.ts}점</span></div>
+          <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-bold">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><span className="font-bold tabular-nums text-blue-700">{emp.totalSale}건{emp.totalCancel > 0 && <span className="text-rose-500 ml-1">(-{emp.totalCancel})</span>}</span></div>
           <div className="p-4"><div className="grid grid-cols-3 gap-3 mb-3">{PROMO_GROUPS.map(p => { const sc = emp.sales[p] || 0; const cc = emp.cancels[p] || 0; return <div key={p} className="text-center p-2 rounded-lg bg-slate-50"><div className="text-[11px] text-slate-500 font-semibold mb-1">{p}</div><div className="text-sm font-bold tabular-nums"><span className={sc > 0 ? "text-blue-700" : "text-slate-300"}>{sc}</span><span className="text-slate-300">/</span><span className={cc > 0 ? "text-rose-500" : "text-slate-300"}>{cc}</span></div></div>; })}</div>
             <div className="space-y-1">{emp.recs.map(r => <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50 group"><div className="flex items-center gap-2"><Badge color={r.category === "판매" ? "green" : "red"}>{r.category}</Badge><Badge color={r.promotion === "일시불" ? "blue" : r.promotion === "렌탈" ? "orange" : "purple"}>{r.promotion}</Badge><span className="text-xs text-slate-500">{r.count}건</span></div><button onClick={() => setDm(r)} className="p-1 rounded hover:bg-rose-100 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Ic d={ic.trash} size={14} /></button></div>)}</div>
           </div>
