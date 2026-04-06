@@ -381,22 +381,40 @@ const SCal = ({ myStore, employees, onDelete }) => {
 
     {/* MONTHLY */}
     {vm === "monthly" && <Card className="overflow-hidden mb-4">
+      {/* Legend header */}
+      <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+        <span className="text-[10px] font-bold text-slate-500">직원명</span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-blue-500" /><span className="text-[10px] font-semibold text-slate-500">일시불</span></div>
+          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-violet-500" /><span className="text-[10px] font-semibold text-slate-500">페이케어</span></div>
+          <div className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500" /><span className="text-[10px] font-semibold text-slate-500">렌탈</span></div>
+          <span className="text-[9px] text-slate-400 ml-1">판매<span className="text-slate-300">/</span>취소</span>
+        </div>
+      </div>
       <div className="grid grid-cols-7 border-b border-slate-200">
         {["월", "화", "수", "목", "금", "토", "일"].map(d => <div key={d} className={`px-1 py-1.5 text-center text-[10px] font-bold ${d === "토" || d === "일" ? "text-slate-400 bg-slate-50" : "text-slate-600 bg-slate-100"}`}>{d}</div>)}
-        <div className="col-span-7 grid grid-cols-7 border-t border-slate-100">{["", "", "", "일시불", "페케", "렌탈", ""].map((h, i) => i >= 3 && i <= 5 ? <div key={i} className="px-0.5 py-0.5 text-center text-[8px] font-semibold text-slate-400 bg-slate-50/50">{h}</div> : <div key={i} />)}</div>
       </div>
       <div className="grid grid-cols-7">{calDays.map((item, i) => {
-        if (!item) return <div key={i} className="min-h-[5rem] bg-slate-50/30 border-b border-r border-slate-50" />;
+        if (!item) return <div key={i} className="min-h-[6.5rem] bg-slate-50/30 border-b border-r border-slate-50" />;
         const { date, day, isWE, isToday, isFut, st } = item; const miss = !isFut && !st;
         const empList = st ? Object.values(st.emps) : [];
-        return <div key={i} onClick={() => setSd(date)} className={`min-h-[5rem] border-b border-r border-slate-100 cursor-pointer transition-all hover:bg-blue-50/30 ${isToday ? "ring-2 ring-inset ring-blue-400" : ""} ${sd === date ? "bg-blue-50" : ""} ${miss ? "bg-slate-100/60" : ""} ${isFut ? "opacity-40" : ""}`}>
-          <div className={`px-1 pt-0.5 text-[10px] font-bold ${isToday ? "text-blue-600" : miss ? "text-slate-400" : isWE ? "text-slate-400" : "text-slate-600"}`}>{day}</div>
-          {st ? <div className="px-0.5 pb-0.5 max-h-[6rem] overflow-y-auto">
-            {empList.map(e => { const PC = ({ v }) => { const s = v[0], c = v[1]; return <span className="tabular-nums">{s > 0 ? <span className="text-blue-600">{s}</span> : <span className="text-slate-300">0</span>}/{c > 0 ? <span className="text-rose-500">{c}</span> : <span className="text-slate-300">0</span>}</span>; }; return <div key={e.name} className="flex items-center gap-0.5 py-px">
-              <span className="text-[9px] font-bold text-slate-700 w-[3.2em] truncate shrink-0">{e.name.length > 3 ? e.name.slice(0, 3) : e.name}</span>
-              <span className="text-[9px] flex-1 flex justify-around"><PC v={e.cash} /><PC v={e.care} /><PC v={e.rental} /></span>
-            </div>; })}
-          </div> : (!isFut && <div className="px-1 mt-1"><span className="text-[9px] text-slate-400 font-semibold">미입력</span></div>)}
+        const EMP_BG = ["bg-blue-50/60", "bg-emerald-50/60", "bg-violet-50/60", "bg-amber-50/60", "bg-rose-50/60", "bg-cyan-50/60", "bg-indigo-50/60", "bg-teal-50/60"];
+        return <div key={i} onClick={() => setSd(date)} className={`min-h-[6.5rem] border-b border-r border-slate-100 cursor-pointer transition-all hover:bg-blue-50/20 ${isToday ? "ring-2 ring-inset ring-blue-400" : ""} ${sd === date ? "bg-blue-50/40" : ""} ${miss ? "bg-slate-50" : ""} ${isFut ? "opacity-35" : ""}`}>
+          <div className={`px-1.5 pt-1 pb-0.5 text-[10px] font-bold ${isToday ? "text-blue-600" : miss ? "text-slate-400" : isWE ? "text-slate-400" : "text-slate-600"}`}>{day}</div>
+          {st ? <div className="px-0.5 pb-1 max-h-[7.5rem] overflow-y-auto space-y-px">
+            {empList.map((e, ei) => {
+              const allZero = e.cash[0] + e.cash[1] + e.care[0] + e.care[1] + e.rental[0] + e.rental[1] === 0;
+              if (allZero) return null;
+              const PV = ({ s, c, color }) => {
+                if (s === 0 && c === 0) return <span className="text-slate-300/70 tabular-nums">·</span>;
+                return <span className="tabular-nums">{s > 0 ? <span className={color}>{s}</span> : <span className="text-slate-300">0</span>}{c > 0 ? <span className="text-rose-500">/{c}</span> : <span className="text-slate-300/50">/0</span>}</span>;
+              };
+              return <div key={e.name} className={`flex items-center gap-0.5 px-0.5 py-[2px] rounded ${EMP_BG[ei % EMP_BG.length]}`}>
+                <span className="text-[9px] font-bold text-slate-700 w-[3em] truncate shrink-0">{e.name.length > 3 ? e.name.slice(0, 3) : e.name}</span>
+                <span className="text-[9px] flex-1 flex justify-around"><PV s={e.cash[0]} c={e.cash[1]} color="text-blue-600" /><PV s={e.care[0]} c={e.care[1]} color="text-violet-600" /><PV s={e.rental[0]} c={e.rental[1]} color="text-amber-600" /></span>
+              </div>;
+            })}
+          </div> : (!isFut && <div className="px-1.5 mt-2"><span className="text-[9px] text-slate-400 font-semibold">미입력</span></div>)}
         </div>;
       })}</div>
       <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center gap-6 text-sm flex-wrap">
