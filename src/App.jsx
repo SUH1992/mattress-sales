@@ -57,6 +57,7 @@ const shiftWeek = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + d
 const shiftMonth = (m, dir) => { const [y, mo] = m.split("-").map(Number); const d = new Date(y, mo - 1 + dir, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
 const shiftDay = (d, dir) => { const x = new Date(d); x.setDate(x.getDate() + dir); return x.toISOString().split("T")[0]; };
 const num = (v) => { const n = Number(v); return isNaN(n) ? 0 : n; };
+const normDate = (v) => { if (!v) return ""; if (typeof v === "string") return v; if (v.toDate) return v.toDate().toISOString().split("T")[0]; if (v instanceof Date) return v.toISOString().split("T")[0]; return String(v); };
 const VALID_PROMOS = new Set(["일시불", "페이케어", "렌탈"]);
 
 const aggregate = (sales, includeCancel, groupBy, multipliers = DEFAULT_MULT) => {
@@ -316,15 +317,6 @@ const SCal = ({ myStore, employees, onDelete }) => {
       console.log("[SCal] 날짜 분포:", dates.slice(0, 10).join(", "), dates.length > 10 ? `... 외 ${dates.length - 10}개` : "");
     }
   }, [my]);
-
-  // Normalize reportDate: Firestore Timestamp → "YYYY-MM-DD" string
-  const normDate = (v) => {
-    if (!v) return "";
-    if (typeof v === "string") return v;
-    if (v.toDate) return v.toDate().toISOString().split("T")[0]; // Firestore Timestamp
-    if (v instanceof Date) return v.toISOString().split("T")[0];
-    return String(v);
-  };
 
   // Per-date summary + per-date-per-employee promo aggregation
   const ds = useMemo(() => {
