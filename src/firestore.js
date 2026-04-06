@@ -45,6 +45,8 @@ export function subscribeSalesQuery(filters, callback) {
     const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     console.log(`[Firestore] 쿼리 결과: ${results.length}건`, results.length === 0 ? "⚠️ 데이터 없음" : `첫 번째: ${JSON.stringify({ reportDate: results[0].reportDate, reportStore: results[0].reportStore, homeStore: results[0].homeStore })}`);
     callback(results);
+  }, (error) => {
+    console.error("[Firestore] ❌ 쿼리 에러:", error.message, { store: filters.store, startDate: filters.startDate, endDate: filters.endDate });
   });
 }
 
@@ -132,12 +134,17 @@ export async function addChangeLog(entry) {
 
 export async function getUserStore(email) {
   const snap = await getDocs(storesCol);
+  console.log(`[getUserStore] 이메일: ${email}, stores 문서 수: ${snap.docs.length}`);
   for (const d of snap.docs) {
     const store = d.data();
+    console.log(`[getUserStore] 문서 ID: "${d.id}", name: "${store.name || "(없음)}", email: "${store.email || "(없음)}", managers: [${(store.managers || []).join(", ")}]`);
     if (store.email === email || (store.managers && store.managers.includes(email))) {
-      return { storeId: d.id, ...store };
+      const storeName = store.name || d.id;
+      console.log(`[getUserStore] ✅ 매칭! storeId: "${d.id}", storeName: "${storeName}"`);
+      return { storeId: d.id, storeName, ...store };
     }
   }
+  console.log(`[getUserStore] ❌ 매칭되는 지점 없음`);
   return null;
 }
 
