@@ -141,17 +141,17 @@ export async function addChangeLog(entry) {
 
 export async function getUserStore(email) {
   const snap = await getDocs(storesCol);
-  console.log(`[getUserStore] 이메일: ${email}, stores 문서 수: ${snap.docs.length}`);
+  console.log("[getUserStore]", { email, storeCount: snap.docs.length });
   for (const d of snap.docs) {
     const store = d.data();
-    console.log(`[getUserStore] 문서 ID: "${d.id}", name: "${store.name || "(없음)}", email: "${store.email || "(없음)}", managers: [${(store.managers || []).join(", ")}]`);
+    console.log("[getUserStore] doc:", { id: d.id, name: store.name, email: store.email, managers: store.managers });
     if (store.email === email || (store.managers && store.managers.includes(email))) {
       const storeName = store.name || d.id;
-      console.log(`[getUserStore] ✅ 매칭! storeId: "${d.id}", storeName: "${storeName}"`);
+      console.log("[getUserStore] matched:", { storeId: d.id, storeName });
       return { storeId: d.id, storeName, ...store };
     }
   }
-  console.log(`[getUserStore] ❌ 매칭되는 지점 없음`);
+  console.log("[getUserStore] no match found");
   return null;
 }
 

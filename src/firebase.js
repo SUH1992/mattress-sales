@@ -4,7 +4,7 @@ import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAYT55mjZgx9wWhmNPk2SMBReXQQAmvQYk",
-  authDomain: "mattress-sales.vercel.app",
+  authDomain: "mattress-sales.firebaseapp.com",
   projectId: "mattress-sales",
   storageBucket: "mattress-sales.firebasestorage.app",
   messagingSenderId: "84853049335",

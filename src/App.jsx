@@ -740,7 +740,7 @@ export default function App() {
         if (storeInfo) {
           // storeName = name필드 우선, 없으면 문서ID 사용
           const resolvedStore = storeInfo.storeName;
-          console.log(`[Auth] 지점 매핑 결과 — storeId(문서ID): "${storeInfo.storeId}", storeName: "${resolvedStore}", name필드: "${storeInfo.name || "(없음)}"`);
+          console.log("[Auth] store mapped:", { storeId: storeInfo.storeId, storeName: resolvedStore, nameField: storeInfo.name });
           setUserProfile({ role: "store", store: resolvedStore, name: firebaseUser.displayName || resolvedStore, email });
           setPage("s-dash"); setAuthError(""); setAuthLoading(false);
           return;
