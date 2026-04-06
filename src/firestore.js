@@ -14,6 +14,10 @@ const configCol = collection(db, "config");
 // Sales Records — query-based loading
 // ══════════════════════════════════════
 
+// Convert "YYYY-MM-DD" string to Date for Firestore Timestamp comparison
+const toDate = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); };
+const toDateEnd = (s) => { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d, 23, 59, 59, 999); };
+
 /**
  * Subscribe to sales with server-side filters.
  * Only 2 query patterns (matching 2 composite indexes):
@@ -31,8 +35,10 @@ export function subscribeSalesQuery(filters, callback) {
     constraints.push(where("reportStore", "==", filters.store));
   }
 
-  constraints.push(where("reportDate", ">=", filters.startDate || "2000-01-01"));
-  constraints.push(where("reportDate", "<=", filters.endDate || "2099-12-31"));
+  const start = filters.startDate || "2000-01-01";
+  const end = filters.endDate || "2099-12-31";
+  constraints.push(where("reportDate", ">=", toDate(start)));
+  constraints.push(where("reportDate", "<=", toDateEnd(end)));
   constraints.push(orderBy("reportDate", "desc"));
 
   if (filters.limitCount) {
@@ -40,7 +46,7 @@ export function subscribeSalesQuery(filters, callback) {
   }
 
   const q = query(salesCol, ...constraints);
-  console.log("[Firestore] subscribeSalesQuery →", { store: filters.store || "(전체)", field: filters.store ? "reportStore" : "(none)", startDate: filters.startDate || "2000-01-01", endDate: filters.endDate || "2099-12-31" });
+  console.log("[Firestore] subscribeSalesQuery →", { store: filters.store || "(전체)", field: filters.store ? "reportStore" : "(none)", startDate: start, endDate: end, startAsDate: toDate(start).toISOString(), endAsDate: toDateEnd(end).toISOString() });
   return onSnapshot(q, (snap) => {
     const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     console.log(`[Firestore] 쿼리 결과: ${results.length}건`, results.length === 0 ? "⚠️ 데이터 없음" : `첫 번째: ${JSON.stringify({ reportDate: results[0].reportDate, reportStore: results[0].reportStore, homeStore: results[0].homeStore })}`);
@@ -59,7 +65,8 @@ export async function checkDuplicate(date, store) {
     salesCol,
     where("isDeleted", "==", false),
     where("reportStore", "==", store),
-    where("reportDate", "==", date),
+    where("reportDate", ">=", toDate(date)),
+    where("reportDate", "<=", toDateEnd(date)),
     firestoreLimit(1),
   );
   const snap = await getDocs(q);
@@ -82,7 +89,7 @@ export async function softDeleteSale(id) {
 }
 
 export async function softDeleteSalesByDate(date, store) {
-  const q = query(salesCol, where("reportDate", "==", date), where("reportStore", "==", store), where("isDeleted", "==", false));
+  const q = query(salesCol, where("isDeleted", "==", false), where("reportStore", "==", store), where("reportDate", ">=", toDate(date)), where("reportDate", "<=", toDateEnd(date)));
   const snap = await getDocs(q);
   const batch = writeBatch(db);
   snap.docs.forEach(d => batch.update(d.ref, { isDeleted: true }));
