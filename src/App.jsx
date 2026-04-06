@@ -304,7 +304,18 @@ const SCal = ({ myStore, employees, onDelete }) => {
   // Query: reportStore (보고지점 = 로그인한 지점)
   const qStart = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m - 2, 1); return d.toISOString().split("T")[0]; }, [cm]);
   const qEnd = useMemo(() => { const [y, m] = cm.split("-").map(Number); const d = new Date(y, m + 1, 0); return d.toISOString().split("T")[0]; }, [cm]);
+  console.log("[SCal] 쿼리 파라미터 →", { myStore, startDate: qStart, endDate: qEnd, filterField: "reportStore" });
   const { data: my, loading } = useSalesQuery({ startDate: qStart, endDate: qEnd, store: myStore });
+
+  useEffect(() => {
+    console.log(`[SCal] 결과 수신: ${my.length}건`, my.length === 0 ? "⚠️ 데이터 없음 — reportStore 값과 myStore 일치 여부 확인" : "");
+    if (my.length > 0) {
+      const sample = my[0];
+      console.log("[SCal] 샘플 레코드:", { id: sample.id, reportDate: sample.reportDate, reportDateType: typeof sample.reportDate, reportStore: sample.reportStore, homeStore: sample.homeStore, category: sample.category });
+      const dates = [...new Set(my.map(s => normDate(s.reportDate)))].sort();
+      console.log("[SCal] 날짜 분포:", dates.slice(0, 10).join(", "), dates.length > 10 ? `... 외 ${dates.length - 10}개` : "");
+    }
+  }, [my]);
 
   // Normalize reportDate: Firestore Timestamp → "YYYY-MM-DD" string
   const normDate = (v) => {

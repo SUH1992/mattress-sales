@@ -40,8 +40,11 @@ export function subscribeSalesQuery(filters, callback) {
   }
 
   const q = query(salesCol, ...constraints);
+  console.log("[Firestore] subscribeSalesQuery →", { store: filters.store || "(전체)", field: filters.store ? "reportStore" : "(none)", startDate: filters.startDate || "2000-01-01", endDate: filters.endDate || "2099-12-31" });
   return onSnapshot(q, (snap) => {
-    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const results = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log(`[Firestore] 쿼리 결과: ${results.length}건`, results.length === 0 ? "⚠️ 데이터 없음" : `첫 번째: ${JSON.stringify({ reportDate: results[0].reportDate, reportStore: results[0].reportStore, homeStore: results[0].homeStore })}`);
+    callback(results);
   });
 }
 
