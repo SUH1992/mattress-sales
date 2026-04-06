@@ -796,7 +796,12 @@ export default function App() {
   const handleGoogleLogin = async () => {
     setAuthLoading(true); setAuthError("");
     try { await signInWithPopup(auth, googleProvider); }
-    catch (e) { setAuthError(e.code === "auth/popup-closed-by-user" ? "로그인이 취소되었습니다." : "로그인에 실패했습니다. 다시 시도해 주세요."); setAuthLoading(false); }
+    catch (e) {
+      console.error("[Auth] login error:", e.code, e.message);
+      if (e.code === "auth/popup-closed-by-user") setAuthError("로그인이 취소되었습니다.");
+      else setAuthError(`로그인 실패: ${e.code || "unknown"} — ${e.message || ""}`);
+      setAuthLoading(false);
+    }
   };
   const handleLogout = async () => { await signOut(auth); setPage("s-dash"); };
   const handleJoinRequest = async (data) => {
