@@ -166,6 +166,21 @@ export async function loadAdminEmails() {
 }
 
 // ══════════════════════════════════════
+// Visors (바이져) — read-only role
+// ══════════════════════════════════════
+
+export async function loadVisors() {
+  const snap = await getDoc(doc(db, "config", "visors"));
+  if (snap.exists() && snap.data().visors) return snap.data().visors;
+  return [];
+}
+
+export async function getUserVisor(email) {
+  const visors = await loadVisors();
+  return visors.find(v => v.email === email) || null;
+}
+
+// ══════════════════════════════════════
 // Approval Requests (가입 요청)
 // ══════════════════════════════════════
 const approvalCol = collection(db, "approvalRequests");

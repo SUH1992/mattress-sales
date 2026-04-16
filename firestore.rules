@@ -1,0 +1,89 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helper functions ──
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userEmail() {
+      return request.auth.token.email;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/config/admin)
+        && userEmail() in get(/databases/$(database)/documents/config/admin).data.adminEmails;
+    }
+
+    function isVisor() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/config/visors)
+        && userEmail() in get(/databases/$(database)/documents/config/visors).data.visors[*].email;
+    }
+
+    // Visors are read-only: allow read but deny write on every collection
+    // unless the user is admin or a store manager.
+
+    // ── salesRecords ──
+    match /salesRecords/{doc} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && !isVisor();
+    }
+
+    // ── employees ──
+    match /employees/{doc} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && !isVisor();
+    }
+
+    // ── stores ──
+    match /stores/{doc} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    // ── config ──
+    // admin doc: only admins can read/write
+    match /config/admin {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+    // visors doc: admins write, signed-in users can read (for role detection)
+    match /config/visors {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    // settings doc + subcollections
+    match /config/settings {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    match /config/settings/snapshots/{doc} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && !isVisor();
+    }
+    match /config/settings/requests/{doc} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && !isVisor();
+    }
+
+    // ── approvalRequests ──
+    match /approvalRequests/{doc} {
+      allow read: if isSignedIn();
+      // Anyone signed in can create their own join request (incl. non-mapped users).
+      allow create: if isSignedIn();
+      // Updates (approve/reject) only by admins.
+      allow update, delete: if isAdmin();
+    }
+
+    // ── changeLogs ──
+    match /changeLogs/{doc} {
+      allow read: if isAdmin();
+      allow create: if isSignedIn() && !isVisor();
+      allow update, delete: if false;
+    }
+  }
+}

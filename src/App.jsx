@@ -7,7 +7,7 @@ import {
   loadConfig, saveConfig, loadStores, addStore, updateStore, addChangeLog,
   subscribeSnapshots, addSnapshot,
   subscribeRequests, addRequest, updateRequest,
-  getUserStore, loadAdminEmails,
+  getUserStore, loadAdminEmails, getUserVisor,
   checkPendingApproval, submitApprovalRequest,
   subscribeApprovalRequests, updateApprovalRequest, addStoreManager,
 } from "./firestore";
@@ -296,7 +296,7 @@ const SInput = ({ myStore, employees, multipliers, onSubmit, onDeleteByDate }) =
 const promoGroup = (p) => { if (p === "일시불") return "일시불"; if (p === "렌탈") return "렌탈"; return "페이케어"; };
 const PROMO_GROUPS = ["일시불", "페이케어", "렌탈"];
 
-const SCal = ({ myStore, employees, onDelete }) => {
+const SCal = ({ myStore, employees, onDelete, readOnly = false }) => {
   const [vm, setVm] = useState("monthly");
   const [cm, setCm] = useState(today().slice(0, 7));
   const [cw, setCw] = useState(today());
@@ -448,7 +448,7 @@ const SCal = ({ myStore, employees, onDelete }) => {
         <div className="space-y-3">{dayDetail.map(emp => <Card key={emp.name} className="overflow-hidden">
           <div className="px-4 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-bold">{emp.name}</span><span className="text-xs text-slate-400">{emp.pos}</span></div><span className="font-bold tabular-nums text-blue-700">{emp.totalSale}건{emp.totalCancel > 0 && <span className="text-rose-500 ml-1">(-{emp.totalCancel})</span>}</span></div>
           <div className="p-4"><div className="grid grid-cols-3 gap-3 mb-3">{PROMO_GROUPS.map(p => { const sc = emp.sales[p] || 0; const cc = emp.cancels[p] || 0; return <div key={p} className="text-center p-2 rounded-lg bg-slate-50"><div className="text-[11px] text-slate-500 font-semibold mb-1">{p}</div><div className="text-sm font-bold tabular-nums"><span className={sc > 0 ? "text-blue-700" : "text-slate-300"}>{sc}</span><span className="text-slate-300">/</span><span className={cc > 0 ? "text-rose-500" : "text-slate-300"}>{cc}</span></div></div>; })}</div>
-            <div className="space-y-1">{emp.recs.map(r => <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50 group"><div className="flex items-center gap-2"><Badge color={r.category === "판매" ? "green" : "red"}>{r.category}</Badge><Badge color={r.promotion === "일시불" ? "blue" : r.promotion === "렌탈" ? "orange" : "purple"}>{r.promotion}</Badge><span className="text-xs text-slate-500">{r.count}건</span></div><button onClick={() => setDm(r)} className="p-1 rounded hover:bg-rose-100 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Ic d={ic.trash} size={14} /></button></div>)}</div>
+            <div className="space-y-1">{emp.recs.map(r => <div key={r.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-50 group"><div className="flex items-center gap-2"><Badge color={r.category === "판매" ? "green" : "red"}>{r.category}</Badge><Badge color={r.promotion === "일시불" ? "blue" : r.promotion === "렌탈" ? "orange" : "purple"}>{r.promotion}</Badge><span className="text-xs text-slate-500">{r.count}건</span></div>{!readOnly && <button onClick={() => setDm(r)} className="p-1 rounded hover:bg-rose-100 text-slate-300 hover:text-rose-500 opacity-0 group-hover:opacity-100 cursor-pointer"><Ic d={ic.trash} size={14} /></button>}</div>)}</div>
           </div>
         </Card>)}</div>}
     </div>}
@@ -459,13 +459,13 @@ const SCal = ({ myStore, employees, onDelete }) => {
 // ══════════════════════════════════════
 // 🏪 STORE: Employee Mgmt
 // ══════════════════════════════════════
-const SEmp = ({ myStore, employees, onRequest }) => {
+const SEmp = ({ myStore, employees, onRequest, readOnly = false }) => {
   const [modal, setModal] = useState(null);
   const me = employees.filter(e => e.homeStore === myStore);
   const submit = () => { if (!modal) return; if (modal.type === "입사" && !modal.nn.trim()) return; onRequest({ id: `req_${Date.now()}`, type: modal.type, store: myStore, employeeName: modal.emp?.name || modal.nn.trim(), detail: modal.type === "직급변동" ? `${modal.emp?.pos} → ${modal.np}` : modal.type === "입사" ? `${modal.nn.trim()} / ${modal.np}` : "퇴사", reason: modal.reason, status: "pending", category: "직원변경", createdAt: new Date().toISOString() }); setModal(null); };
   return <div>
-    <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">직원 관리</h1><p className="text-slate-500 text-sm">{myStore} 직원 변경 요청</p></div><Btn onClick={() => setModal({ type: "입사", emp: null, nn: "", np: "매니저", reason: "" })}><Ic d={ic.plus} size={16} />입사 요청</Btn></div>
-    <Card className="overflow-hidden"><table className="w-full text-sm"><thead><tr className="border-b border-slate-100">{["이름", "직급", "상태", "요청"].map(h => <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead><tbody>{me.map(emp => <tr key={emp.id} className="border-b border-slate-50 hover:bg-slate-50/50"><td className="px-5 py-3"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-semibold">{emp.name}</span></div></td><td className="px-5 py-3 text-slate-600">{emp.pos}</td><td className="px-5 py-3"><Badge color={emp.isActive ? "green" : "red"}>{emp.isActive ? "재직" : "퇴직"}</Badge></td><td className="px-5 py-3"><div className="flex gap-2"><Btn v="ghost" size="sm" onClick={() => setModal({ type: "직급변동", emp, np: emp.pos, reason: "" })}>직급변동</Btn>{emp.isActive && <Btn v="ghost" size="sm" onClick={() => setModal({ type: "퇴사", emp, reason: "" })}>퇴사</Btn>}</div></td></tr>)}</tbody></table></Card>
+    <div className="flex items-center justify-between mb-6"><div><h1 className="text-2xl font-bold text-slate-900 mb-1">직원 관리</h1><p className="text-slate-500 text-sm">{myStore} 직원 {readOnly ? "현황 (읽기 전용)" : "변경 요청"}</p></div>{!readOnly && <Btn onClick={() => setModal({ type: "입사", emp: null, nn: "", np: "매니저", reason: "" })}><Ic d={ic.plus} size={16} />입사 요청</Btn>}</div>
+    <Card className="overflow-hidden"><table className="w-full text-sm"><thead><tr className="border-b border-slate-100">{["이름", "직급", "상태", ...(readOnly ? [] : ["요청"])].map(h => <th key={h} className="px-5 py-3 text-left text-[11px] font-semibold text-slate-500 uppercase">{h}</th>)}</tr></thead><tbody>{me.map(emp => <tr key={emp.id} className="border-b border-slate-50 hover:bg-slate-50/50"><td className="px-5 py-3"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold">{emp.name[0]}</div><span className="font-semibold">{emp.name}</span></div></td><td className="px-5 py-3 text-slate-600">{emp.pos}</td><td className="px-5 py-3"><Badge color={emp.isActive ? "green" : "red"}>{emp.isActive ? "재직" : "퇴직"}</Badge></td>{!readOnly && <td className="px-5 py-3"><div className="flex gap-2"><Btn v="ghost" size="sm" onClick={() => setModal({ type: "직급변동", emp, np: emp.pos, reason: "" })}>직급변동</Btn>{emp.isActive && <Btn v="ghost" size="sm" onClick={() => setModal({ type: "퇴사", emp, reason: "" })}>퇴사</Btn>}</div></td>}</tr>)}</tbody></table></Card>
     <Modal open={!!modal} onClose={() => setModal(null)} title={modal ? `${modal.type} 요청` : ""}>{modal && <div className="space-y-4">{modal.type === "입사" && <><div><Label>이름</Label><Inp value={modal.nn} onChange={v => setModal(p => ({ ...p, nn: v }))} /></div><div><Label>직급</Label><Sel value={modal.np} onChange={v => setModal(p => ({ ...p, np: v }))} options={POSITIONS} /></div></>}{modal.type === "직급변동" && <div><Label>{modal.emp?.name} 변경 직급</Label><Sel value={modal.np} onChange={v => setModal(p => ({ ...p, np: v }))} options={POSITIONS} /><p className="text-xs text-slate-400 mt-1">현재: {modal.emp?.pos}</p></div>}{modal.type === "퇴사" && <p className="text-sm"><strong>{modal.emp?.name}</strong> 퇴사 처리 요청</p>}<div><Label>사유</Label><Inp value={modal.reason} onChange={v => setModal(p => ({ ...p, reason: v }))} placeholder="사유" /></div><div className="flex gap-3 justify-end pt-2"><Btn v="secondary" onClick={() => setModal(null)}>취소</Btn><Btn onClick={submit}>요청 접수</Btn></div></div>}</Modal>
   </div>;
 };
@@ -713,10 +713,106 @@ const HMaster = ({ employees, userEmail, onRefreshEmps }) => {
 };
 
 // ══════════════════════════════════════
+// 👁️ VISOR: Dashboard (aggregate / per-store)
+// ══════════════════════════════════════
+const VDashAggregate = ({ storeIds, employees, snapshots }) => {
+  const monthStart = today().slice(0, 7) + "-01";
+  // Load sales for the first assigned store; then fetch others separately.
+  // NOTE: Since useSalesQuery only supports one store filter at a time,
+  // we load all assigned stores sequentially and merge.
+  // For simplicity & index efficiency, we use the no-store query and
+  // filter client-side to the assigned store IDs.
+  const { data: allSales, loading } = useSalesQuery({ startDate: monthStart, endDate: today() });
+  const mySales = useMemo(() => allSales.filter(s => storeIds.includes(s.reportStore)), [allSales, storeIds]);
+  const myEmps = useMemo(() => employees.filter(e => storeIds.includes(e.homeStore) && e.isActive), [employees, storeIds]);
+
+  // Per-store aggregation
+  const perStore = useMemo(() => {
+    const map = {};
+    storeIds.forEach(s => { map[s] = { name: s, sc: 0, cc: 0 }; });
+    mySales.forEach(s => {
+      if (!map[s.reportStore]) return;
+      const cnt = num(s.count) || 1;
+      if (s.category === "판매") map[s.reportStore].sc += cnt;
+      else if (s.category === "취소") map[s.reportStore].cc += cnt;
+    });
+    return Object.values(map).sort((a, b) => b.sc - a.sc);
+  }, [mySales, storeIds]);
+
+  const totalSale = perStore.reduce((a, s) => a + s.sc, 0);
+  const totalCancel = perStore.reduce((a, s) => a + s.cc, 0);
+
+  // Weekly rank trend per store (from snapshots)
+  const trendData = storeIds.map(st => ({
+    name: st,
+    trend: snapshots.slice().reverse().map(sn => sn.storeRanks?.[st] ? (100 - sn.storeRanks[st]) : 50),
+    currentRank: snapshots[0]?.storeRanks?.[st] || "-",
+    prevRank: snapshots[1]?.storeRanks?.[st] || null,
+  }));
+
+  return <div>
+    <h1 className="text-2xl font-bold text-slate-900 mb-1">전체 합산 대시보드</h1>
+    <p className="text-slate-500 text-sm mb-6">담당 지점 {storeIds.length}개 통합 현황</p>
+    {loading && <div className="text-center py-8 text-slate-400">로딩 중...</div>}
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <Stat label="담당 지점" value={`${storeIds.length}개`} color="slate" />
+      <Stat label="이번달 판매" value={`${totalSale}건`} color="blue" />
+      <Stat label="이번달 취소" value={`${totalCancel}건`} color="amber" />
+      <Stat label="활성 직원" value={`${myEmps.length}명`} color="emerald" />
+    </div>
+    <Card className="p-5 mb-6">
+      <h2 className="font-bold mb-3">지점별 이번달 실적</h2>
+      <div className="space-y-3">{perStore.map(s => { const mx = perStore[0]?.sc || 1; return <div key={s.name} className="flex items-center gap-3">
+        <span className="w-20 text-sm font-semibold truncate">{s.name}</span>
+        <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-blue-400 to-blue-600 rounded-full" style={{ width: `${(s.sc / mx) * 100}%` }} /></div>
+        <span className="w-24 text-right text-sm tabular-nums"><strong className="text-blue-700">{s.sc}건</strong>{s.cc > 0 && <span className="text-rose-500 ml-1">(-{s.cc})</span>}</span>
+      </div>; })}</div>
+    </Card>
+    <Card className="p-5">
+      <h2 className="font-bold mb-3">지점별 주간 순위 추이</h2>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">{trendData.map(t => <div key={t.name} className="p-3 rounded-xl bg-slate-50">
+        <div className="flex items-center justify-between mb-2">
+          <span className="font-semibold text-sm">{t.name}</span>
+          <span className="text-xs font-bold tabular-nums">{t.currentRank}위{t.prevRank && t.prevRank !== t.currentRank && <span className={t.prevRank > t.currentRank ? "text-emerald-600 ml-1" : "text-rose-500 ml-1"}>({t.prevRank > t.currentRank ? "▲" : "▼"}{Math.abs(t.prevRank - t.currentRank)})</span>}</span>
+        </div>
+        <Spark data={t.trend} w={160} h={28} color={t.prevRank && t.prevRank >= t.currentRank ? "#10b981" : "#ef4444"} />
+      </div>)}</div>
+    </Card>
+  </div>;
+};
+
+const VDash = ({ userProfile, employees, snapshots }) => {
+  const storeIds = userProfile?.storeIds || [];
+  const [selectedStore, setSelectedStore] = useState("all"); // "all" | store name
+  const [subPage, setSubPage] = useState("dash"); // dash | cal | emp
+
+  if (storeIds.length === 0) return <div className="text-center py-12"><p className="text-slate-500">담당 지점이 없습니다. 관리자에게 문의하세요.</p></div>;
+
+  return <div>
+    {/* Store selector */}
+    <Card className="p-3 mb-6"><div className="flex items-center gap-2 flex-wrap">
+      <span className="text-xs font-bold text-slate-500 mr-2">지점 선택:</span>
+      <button onClick={() => { setSelectedStore("all"); setSubPage("dash"); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${selectedStore === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>🗂️ 전체 합산</button>
+      {storeIds.map(s => <button key={s} onClick={() => { setSelectedStore(s); setSubPage("dash"); }} className={`px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer ${selectedStore === s ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>🏪 {s}</button>)}
+    </div></Card>
+
+    {/* Sub-navigation for individual store view */}
+    {selectedStore !== "all" && <div className="mb-6"><Tabs tabs={[{ id: "dash", label: "대시보드" }, { id: "cal", label: "판매내역" }, { id: "emp", label: "직원 현황" }]} active={subPage} onChange={setSubPage} /></div>}
+
+    {/* Content */}
+    {selectedStore === "all" ? <VDashAggregate storeIds={storeIds} employees={employees} snapshots={snapshots} />
+      : subPage === "dash" ? <SDash myStore={selectedStore} snapshots={snapshots} employees={employees} />
+      : subPage === "cal" ? <SCal myStore={selectedStore} employees={employees} onDelete={() => {}} readOnly={true} />
+      : <SEmp myStore={selectedStore} employees={employees} onRequest={() => {}} readOnly={true} />}
+  </div>;
+};
+
+// ══════════════════════════════════════
 // MAIN APP
 // ══════════════════════════════════════
 const SNAV = [{ id: "s-dash", label: "대시보드", icon: ic.home }, { id: "s-input", label: "판매 등록", icon: ic.plus }, { id: "s-cal", label: "판매내역", icon: ic.calendar }, { id: "s-emp", label: "직원 관리", icon: ic.users }];
 const HNAV = [{ id: "h-rank", label: "랭킹 조회", icon: ic.trophy }, { id: "h-close", label: "주간 마감", icon: ic.lock }, { id: "h-approve", label: "승인센터", icon: ic.clipboard }, { id: "h-master", label: "기초정보 관리", icon: ic.database }, { id: "h-set", label: "환산점수", icon: ic.settings }];
+const VNAV = [{ id: "v-dash", label: "바이져 대시보드", icon: ic.home }, { id: "v-rank", label: "랭킹 조회", icon: ic.trophy }];
 
 export default function App() {
   // ── Auth state ──
@@ -753,7 +849,16 @@ export default function App() {
           return;
         }
 
-        // 2) Check store assignment
+        // 2) Check visor
+        const visor = await getUserVisor(email);
+        if (visor) {
+          console.log("[Auth] visor matched:", visor);
+          setUserProfile({ role: "visor", store: null, name: visor.name || firebaseUser.displayName || email, email, grade: visor.grade, storeIds: visor.storeIds || [] });
+          setPage("v-dash"); setAuthError(""); setAuthLoading(false);
+          return;
+        }
+
+        // 3) Check store assignment
         const storeInfo = await getUserStore(email);
         if (storeInfo) {
           // storeName = name필드 우선, 없으면 문서ID 사용
@@ -764,7 +869,7 @@ export default function App() {
           return;
         }
 
-        // 3) Check pending approval
+        // 4) Check pending approval
         const pending = await checkPendingApproval(email);
         if (pending) {
           setUserProfile({ role: "pending", store: null, name: firebaseUser.displayName || "", email });
@@ -772,7 +877,7 @@ export default function App() {
           return;
         }
 
-        // 4) New user — show join request form
+        // 5) New user — show join request form
         const stores = await loadStores();
         setStoreList(stores.map(s => s.id));
         setUserProfile({ role: "new", store: null, name: firebaseUser.displayName || "", email });
@@ -790,7 +895,7 @@ export default function App() {
   const refreshConfig = useCallback(async () => { const c = await loadConfig(); if (c.multipliers) setMult(c.multipliers); }, []);
 
   useEffect(() => {
-    if (!user || !userProfile || (userProfile.role !== "hq" && userProfile.role !== "store")) return;
+    if (!user || !userProfile || !["hq", "store", "visor"].includes(userProfile.role)) return;
     let cancelled = false;
     const unsubs = [];
 
@@ -829,9 +934,9 @@ export default function App() {
   };
 
   // ── Derived state ──
-  const role = userProfile?.role === "hq" ? "hq" : "store";
+  const role = userProfile?.role || "store"; // "hq" | "visor" | "store"
   const myStore = userProfile?.store || "";
-  const nav = role === "store" ? SNAV : HNAV;
+  const nav = role === "hq" ? HNAV : role === "visor" ? VNAV : SNAV;
   const pc = reqs.filter(r => r.status === "pending").length + approvalReqs.filter(r => r.status === "pending").length;
 
   // ── CRUD handlers (Firestore) ──
@@ -917,19 +1022,21 @@ export default function App() {
       case "h-approve": return <HApprove requests={reqs} onApprove={handleApprove} onReject={handleReject} approvalRequests={approvalReqs} onApproveJoin={handleApproveJoin} onRejectJoin={handleRejectJoin} />;
       case "h-master": return <HMaster employees={emps} userEmail={userProfile?.email} onRefreshEmps={refreshEmps} />;
       case "h-set": return <HSet multipliers={mult} onSave={handleSaveMult} />;
+      case "v-dash": return <VDash userProfile={userProfile} employees={emps} snapshots={snaps} />;
+      case "v-rank": return <HRank snapshots={snaps} multipliers={mult} />;
       default: return null;
     }
   };
 
   return <div className="min-h-screen bg-slate-50" style={{ fontFamily: "'Pretendard',-apple-system,BlinkMacSystemFont,sans-serif" }}>
-    <div className={`fixed inset-y-0 left-0 z-40 w-60 transform transition-transform duration-300 lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"} ${role === "store" ? "bg-slate-900" : "bg-indigo-950"}`}>
-      <div className="px-5 py-4 border-b border-white/10"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-lg">{role === "store" ? "🏪" : "🏢"}</div><div><div className="text-white font-bold text-sm">{role === "store" ? myStore : "본사"}</div><div className="text-[10px] text-white/40 uppercase tracking-widest">{role === "store" ? "Store" : "HQ"}</div></div></div></div>
+    <div className={`fixed inset-y-0 left-0 z-40 w-60 transform transition-transform duration-300 lg:translate-x-0 ${sideOpen ? "translate-x-0" : "-translate-x-full"} ${role === "store" ? "bg-slate-900" : role === "visor" ? "bg-emerald-900" : "bg-indigo-950"}`}>
+      <div className="px-5 py-4 border-b border-white/10"><div className="flex items-center gap-2.5"><div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-lg">{role === "store" ? "🏪" : role === "visor" ? "👁️" : "🏢"}</div><div><div className="text-white font-bold text-sm">{role === "store" ? myStore : role === "visor" ? "바이져" : "본사"}</div><div className="text-[10px] text-white/40 uppercase tracking-widest">{role === "store" ? "Store" : role === "visor" ? `Visor${userProfile?.grade ? " · " + userProfile.grade : ""}` : "HQ"}</div></div></div></div>
       <div className="px-3 py-3 border-b border-white/10"><div className="flex items-center gap-2">{user.photoURL ? <img src={user.photoURL} className="w-7 h-7 rounded-full" referrerPolicy="no-referrer" /> : <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-[11px] font-bold text-white">{(userProfile?.name || "?")[0]}</div>}<div className="flex-1 min-w-0"><div className="text-xs font-semibold text-white/80 truncate">{userProfile?.name}</div><div className="text-[10px] text-white/40 truncate">{userProfile?.email}</div></div></div><button onClick={handleLogout} className="w-full mt-2 py-1.5 rounded-lg text-[11px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/5 cursor-pointer transition-colors">로그아웃</button></div>
       <nav className="px-3 py-3 space-y-0.5">{nav.map(item => <button key={item.id} onClick={() => { setPage(item.id); setSideOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer ${page === item.id ? "bg-white/10 text-white" : "text-white/40 hover:text-white/70 hover:bg-white/5"}`}><Ic d={item.icon} size={17} /><span>{item.label}</span>{item.id === "h-approve" && pc > 0 && <span className="ml-auto bg-rose-500 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">{pc}</span>}</button>)}</nav>
     </div>
     {sideOpen && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setSideOpen(false)} />}
     <div className="lg:ml-60">
-      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">{userProfile?.name}</span></div></div></header>
+      <header className="sticky top-0 z-20 bg-white/80 backdrop-blur-xl border-b border-slate-100"><div className="flex items-center justify-between px-5 py-3"><div className="flex items-center gap-3"><button onClick={() => setSideOpen(true)} className="lg:hidden p-2 rounded-xl hover:bg-slate-100 cursor-pointer"><Ic d={ic.menu} size={20} /></button><div><h2 className="font-bold text-sm">{nav.find(n => n.id === page)?.label}</h2><p className="text-[11px] text-slate-400">{role === "store" ? myStore : role === "visor" ? "바이져" : "본사"}</p></div></div><div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /><span className="text-[11px] text-slate-400">{userProfile?.name}</span></div></div></header>
       <main className="p-5 max-w-6xl mx-auto">{rp()}</main>
     </div>
     {toast && <Toast {...toast} onClose={() => setToast(null)} />}

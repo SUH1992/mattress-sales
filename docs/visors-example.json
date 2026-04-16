@@ -1,0 +1,18 @@
+{
+  "__description": "Example data for config/visors Firestore document. Replace example.visor@gmail.com with real emails and adjust storeIds to match actual store document IDs (or store names used as IDs) in the stores collection.",
+  "__howToImport": [
+    "1. Open Firebase Console → Firestore Database",
+    "2. Navigate to config/visors (create if missing: collection 'config' → document ID 'visors')",
+    "3. Paste the 'visors' array below into the document as a field named 'visors' (type: array)",
+    "4. Save",
+    "5. Have the visor sign in with Google using their registered email"
+  ],
+  "visors": [
+    {
+      "email": "example.visor@gmail.com",
+      "name": "테스트 바이져",
+      "grade": "수석바이져",
+      "storeIds": ["강남점", "수원점", "평택점", "광교점", "분당점"]
+    }
+  ]
+}
