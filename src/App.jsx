@@ -842,29 +842,54 @@ export default function App() {
 
   // HApprove handlers (직원변경 요청)
   const handleApprove = async (req) => {
-    await updateRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
-    if (req.type === "퇴사") {
-      const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
-      if (emp) await updateEmployee(emp.id, { isActive: false });
-    } else if (req.type === "직급변동") {
-      const np = req.detail.split(" → ")[1];
-      const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
-      if (emp && np) await updateEmployee(emp.id, { pos: np });
-    } else if (req.type === "입사") {
-      const [name, pos] = req.detail.split(" / ");
-      await addEmployee({ name, homeStore: req.store, pos: pos || "매니저" });
+    try {
+      console.log("[Approve] 처리 시작:", req);
+      await updateRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
+      console.log("[Approve] updateRequest 완료");
+      if (req.type === "퇴사") {
+        const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
+        console.log("[Approve] 퇴사 대상 직원 찾기:", { employeeName: req.employeeName, store: req.store, found: !!emp, emp });
+        if (emp) { await updateEmployee(emp.id, { isActive: false }); console.log("[Approve] 직원 비활성화 완료"); }
+        else console.warn("[Approve] ⚠️ 직원을 찾을 수 없음");
+      } else if (req.type === "직급변동") {
+        const np = req.detail.split(" → ")[1];
+        const emp = emps.find(e => e.name === req.employeeName && e.homeStore === req.store);
+        console.log("[Approve] 직급변동 대상:", { np, employeeName: req.employeeName, store: req.store, found: !!emp });
+        if (emp && np) { await updateEmployee(emp.id, { pos: np }); console.log("[Approve] 직급 업데이트 완료"); }
+        else console.warn("[Approve] ⚠️ 직원 또는 새 직급 없음");
+      } else if (req.type === "입사") {
+        const [name, pos] = req.detail.split(" / ");
+        console.log("[Approve] 입사 처리:", { name, pos, store: req.store });
+        await addEmployee({ name, homeStore: req.store, pos: pos || "매니저" });
+        console.log("[Approve] 직원 추가 완료");
+      }
+      await refreshEmps();
+      show("승인 완료");
+    } catch (e) {
+      console.error("[Approve] ❌ 에러:", e);
+      show(`승인 실패: ${e.message || e.code || "unknown"}`);
     }
-    await refreshEmps();
   };
-  const handleReject = async (req) => { await updateRequest(req.id, { status: "rejected" }); };
+  const handleReject = async (req) => {
+    try { await updateRequest(req.id, { status: "rejected" }); show("반려 완료"); }
+    catch (e) { console.error("[Reject] ❌ 에러:", e); show(`반려 실패: ${e.message}`); }
+  };
 
   // 가입 요청 승인/반려
   const handleApproveJoin = async (req) => {
-    await updateApprovalRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
-    await addStoreManager(req.requestedStore, req.requestorEmail);
+    try {
+      console.log("[ApproveJoin] 처리 시작:", req);
+      await updateApprovalRequest(req.id, { status: "approved", processedAt: new Date().toISOString() });
+      await addStoreManager(req.requestedStore, req.requestorEmail);
+      show("가입 승인 완료");
+    } catch (e) {
+      console.error("[ApproveJoin] ❌ 에러:", e);
+      show(`가입 승인 실패: ${e.message || e.code || "unknown"}`);
+    }
   };
   const handleRejectJoin = async (req) => {
-    await updateApprovalRequest(req.id, { status: "rejected", processedAt: new Date().toISOString() });
+    try { await updateApprovalRequest(req.id, { status: "rejected", processedAt: new Date().toISOString() }); show("반려 완료"); }
+    catch (e) { console.error("[RejectJoin] ❌ 에러:", e); show(`반려 실패: ${e.message}`); }
   };
 
   // HClose handler
